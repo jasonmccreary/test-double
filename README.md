@@ -1,6 +1,6 @@
 # Test Double
 
-> Tired of Mockery making you think about the difference between mocks, partials, and spies?
+Tired of Mockery making you think about the difference between mocks, partials, and spies?
 
 I am, which is why I created `double()` - a simple helper method to make using Mockery easier.
 
@@ -9,7 +9,7 @@ This abstraction is common in other popular testing frameworks such as [RSpec](h
 ## Installation
 To install the latest version of the `double()` helper, run the command:
 
-composer require --dev jasonmccreary/test-double
+`composer require --dev jasonmccreary/test-double`
 
 ## Show me the code…
 
@@ -48,7 +48,7 @@ $td instanceof Str;      // true
 $td->shouldHaveReceived('substr')->with(1, 3);
 ```
 
-Finally, `double()` accepts a second argument of _passthru_. By default, _passthru_ is `false`. When set to `true`, the test object will pass any method calls through to the underlying object.
+Finally, `double()` accepts a second argument of `passthru`. By default, `passthru` is `false`. When set to `true`, the test object will pass any method calls through to the underlying object.
 
 In Mockery, this is equivalent to `Mockery::mock(SomeClass::class)->shouldDeferMissing()`.
 
@@ -79,6 +79,6 @@ $td instanceof Number;      // true
 $td->shouldHaveReceived('one');
 ```
 
-Note: _passthru_ can only be used when creating a test double with a class reference as that is the only time an underlying implementation exists.
+Note: `passthru` can only be used when creating a test double with a class reference as that is the only time an underlying implementation exists.
 
 In the end, `double()` is an opinionated way to create test objects for your underlying code. If it does not meet your needs, you can always create a `Mockery::mock()` directly. However, doing so is likely a smell you're testing your implementation in a way that does not reflect real world behavior. Remember, `double()` returns an object which implements the `MockeryInterface`. So it can be treated as any other `Mockery::mock()` object.
