@@ -1,18 +1,16 @@
 # Test Double
+Tired remembering the difference between mocks, partials, and spies in Mockery? I am, which is why I created `double()` - a simple helper method to make using Mockery easier.
 
-> Tired of Mockery making you think about the difference between mocks, partials, and spies?
-
-I am, which is why I created `double()` - a simple helper method to make using Mockery easier.
-
-This abstraction is common in other popular testing frameworks such as [RSpec](https://relishapp.com/rspec/rspec-mocks/docs/basics/test-doubles), [td.js](https://github.com/testdouble/testdouble.js), and more.
+When writing tests I don't want to focus on the nuanced differences between _fakes_, _mocks_, and _spies_. I just to create a generic _test double_ and continue writing my test. This generalization is common in other popular testing frameworks such as [RSpec](https://relishapp.com/rspec/rspec-mocks/docs/basics/test-doubles), [td.js](https://github.com/testdouble/testdouble.js), and more.
 
 ## Installation
 To install the latest version of the `double()` helper, run the command:
 
+```sh
 composer require --dev jasonmccreary/test-double
+```
 
-## Show me the code…
-
+## Usage
 Anytime you need to create a _test double_ simply call `double()`
 
 By default, `double()` returns an object that will allow you to stub methods as well as verify method calls.
@@ -50,7 +48,7 @@ $td->shouldHaveReceived('substr')->with(1, 3);
 
 Finally, `double()` accepts a second argument of _passthru_. By default, _passthru_ is `false`. When set to `true`, the test object will pass any method calls through to the underlying object.
 
-In Mockery, this is equivalent to `Mockery::mock(SomeClass::class)->shouldDeferMissing()`.
+In Mockery, this is equivalent to `Mockery::mock(Number::class)->shouldDeferMissing()`.
 
 ```php
 <?php
@@ -71,10 +69,10 @@ $td = double(Number::class, true);
 
 $td->shouldReceive('random')->andReturn(21);
 
-$td->random();           // 21
-$td->one();              // 1
+$td->random();            // 21
+$td->one();               // 1
 
-$td instanceof Number;      // true
+$td instanceof Number;    // true
 
 $td->shouldHaveReceived('one');
 ```
