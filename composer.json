@@ -6,6 +6,7 @@
         "mockery",
         "mock"
     ],
+    "license": "MIT",
     "authors": [
         {
             "name": "Jason McCreary",
