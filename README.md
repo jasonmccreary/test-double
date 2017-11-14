@@ -1,7 +1,7 @@
 # Test Double
-Tired remembering the difference between mocks, partials, and spies in Mockery? I am, which is why I created `double()` - a simple helper method to make using Mockery easier.
+Tired of remembering the difference between mocks, partials, and spies in Mockery? I am, which is why I created `double()` - a simple helper method to make using Mockery easier.
 
-When writing tests I don't want to focus on the nuanced differences between _fakes_, _mocks_, and _spies_. I just to create a generic _test double_ and continue writing my test. This generalization is common in other popular testing frameworks such as [RSpec](https://relishapp.com/rspec/rspec-mocks/docs/basics/test-doubles), [td.js](https://github.com/testdouble/testdouble.js), and more.
+When writing tests I don't want to think about the differences between _fakes_, _mocks_, and _spies_. I just to create a generic _test double_ and focus on writing my test. This generalization is common in other testing frameworks such as [RSpec](https://relishapp.com/rspec/rspec-mocks/docs/basics/test-doubles), [td.js](https://github.com/testdouble/testdouble.js), and more.
 
 ## Installation
 To install the latest version of the `double()` helper, run the command:
