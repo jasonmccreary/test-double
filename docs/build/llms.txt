@@ -17,6 +17,8 @@
 
 ## Blog
 
+- [What about "unnamed mocks"?](https://testdoublephp.com/blog/what-about-unnamed-mocks): Why Double doesn't offer an equivalent to Mockery::mock() and what to reach for instead.
 - [What does a good failure message look like?](https://testdoublephp.com/blog/what-does-a-good-failure-message-look-like): A close read of a real Double failure message, piece by piece.
 - [How is Double better than Mockery?](https://testdoublephp.com/blog/how-is-double-better-than-mockery): A reply to a question from r/PHP on what actually improves once you move from Mockery to Double.
 - [Why not `hasReceived()` or `assertReceived()`?](https://testdoublephp.com/blog/why-not-hasreceived-or-assertreceived): Why Double settled on received() instead of a has- or assert-prefixed verb, and why that was a deliberate trade-off.
+- [Why is it called "Double"?](https://testdoublephp.com/blog/why-is-it-called-double): "Double" borrows its name from "test double," the generic term for any stand-in used in place of a real dependency in a test.

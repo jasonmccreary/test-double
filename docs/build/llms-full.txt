@@ -1070,6 +1070,72 @@ Every exception's wording lives in one place: its `*Fields` trait in `src/Except
 
 ---
 
+<!-- https://testdoublephp.com/blog/what-about-unnamed-mocks -->
+
+---
+title: What about "unnamed mocks"?
+description: Why Double doesn't offer an equivalent to Mockery::mock() and what to reach for instead.
+published: 2026-09-08
+---
+
+# What about "unnamed mocks"?
+
+```php
+$mock = Mockery::mock();
+$mock->shouldReceive('foo')->andReturn('bar');
+```
+
+Mockery lets you create a mock without naming a class or interface. They call it an "unnamed mock." Double doesn't have such a feature, and that's deliberate.
+
+## No type
+Since this mock doesn't have a target, it also doesn't have a type. This means it doesn't pass a type-hint. Its usefulness shrinks to untyped parameters, dynamic properties, and code that never checks type. Historically, that was most PHP code. Nowadays that's less and less code.
+
+Double is a modern PHP testing library, designed for modern PHP codebases.
+
+## It's not a mock, it's a stub
+If you strip away the `mock` name, you're really creating a `stub`. That is, you're not verifying behavior so much as providing canned responses during the tests. That's the very [definition of a stub](https://martinfowler.com/bliki/TestDouble.html).
+
+Double focuses on _mocks_ and _spies_. The other types of test doubles may be written directly.
+
+## Alternative
+This brings us to a more appropriate alternative. If you simply need a stand-in, with no behavior, you may use a plain PHP array or `stdClass`.
+
+```php
+$dummy = new stdClass();
+```
+
+It's far less code. There's no special object to create and no expectations to define.
+
+If you do need limited behavior, you can add the necessary methods to provide the answers in your test.
+
+Consider a test for the following untyped, legacy code.
+
+```php
+function applyDiscount($order)
+{
+    return $order->getTotal() * 0.9;
+}
+```
+
+To test this, you may create an anonymous class and define the necessary method for your specific test case:
+
+```php
+// arrange
+$order = new class {
+    public function getTotal(): float
+    {
+        return 200.0;
+    }
+};
+
+// act
+$discounted = applyDiscount($order);
+```
+
+In this case, it's arguably the same amount of code. But if you were testing this repeatedly, you could actually create a _stub_ class to use for testing. Of course, if the code actually has a class for order, you could also use the real thing.
+
+---
+
 <!-- https://testdoublephp.com/blog/what-does-a-good-failure-message-look-like -->
 
 ---
@@ -1236,3 +1302,18 @@ Bringing it back to mocking libraries, these filler words can actually create *a
 > `does` (certain) sits at one end, `can` (maybe) at the other — and `should` lands a lot closer to `can` than most people assume.
 
 That's the failure mode a prefix invites: it reads as a claim about certainty, but it isn't one. `received()` doesn't have that problem, because it isn't claiming anything — it's just naming the fact you're checking. There's no tense or modal verb to misread, because there's no verb standing in front of the one that matters.
+
+---
+
+<!-- https://testdoublephp.com/blog/why-is-it-called-double -->
+
+---
+title: Why is it called "Double"?
+description: "Double" borrows its name from "test double," the generic term for any stand-in used in place of a real dependency in a test.
+published: 2026-08-05
+---
+
+# Why is it called "Double"?
+When testing it's common to say "mock". But _mock_ is actually a specific type of test object. _Spy_ is another. As well as, _fake_, _stub_, and _dummy_. The generic term for a test object is _test double_. Or, more simply, _double_. That's where this library gets its name. Underneath, Double uses _mocks_, _spies_, and _stubs_. But instead of forcing you to distinguish between these as some other libraries, it derives it based on your expectations.
+
+So, a bit pedantic, but technically accurate. For a fuller history of these names and good definitions of each, read Martin Fowler's [TestDouble](https://martinfowler.com/bliki/TestDouble.html).
