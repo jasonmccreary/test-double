@@ -147,25 +147,23 @@ final class DoubleStateTest extends TestCase
         $this->assertSame(['id'], $state->parameterNames('find'));
     }
 
-    public function test_configure_passthru_sets_the_mode_and_stores_the_real_instance(): void
+    public function test_configure_passthru_sets_the_mode(): void
     {
         $state = new DoubleState(BookRepositoryInterface::class, 'BookRepositoryInterface');
-        $real = new \stdClass;
 
-        $state->configurePassthru($real);
+        $state->configurePassthru();
 
         $this->assertSame(Mode::Passthru, $state->mode());
-        $this->assertSame($real, $state->passthruTarget());
     }
 
     public function test_configure_passthru_cannot_run_twice(): void
     {
         $state = new DoubleState(BookRepositoryInterface::class, 'BookRepositoryInterface');
-        $state->configurePassthru(new \stdClass);
+        $state->configurePassthru();
 
         $this->expectException(ModeConfigurationException::class);
 
-        $state->configurePassthru(new \stdClass);
+        $state->configurePassthru();
     }
 
     public function test_known_instance_is_null_until_remembered(): void

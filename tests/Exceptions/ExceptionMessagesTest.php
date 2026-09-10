@@ -302,13 +302,6 @@ final class ExceptionMessagesTest extends GoldenFileTestCase
         $this->assertMatchesGolden('passthru-auto-instantiation-interface', $exception->getMessage());
     }
 
-    public function test_renders_passthru_auto_instantiation_for_a_throwing_constructor(): void
-    {
-        $exception = PassthruAutoInstantiationException::constructionFailed('ConcreteLogger', new \RuntimeException('boom'));
-
-        $this->assertMatchesGolden('passthru-auto-instantiation-construction-failed', $exception->getMessage());
-    }
-
     public function test_renders_unknown_method(): void
     {
         $exception = new UnknownMethodException('BookRepositoryInterface', 'bogus');

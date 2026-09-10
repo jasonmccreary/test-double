@@ -120,3 +120,5 @@ $verify($credential, $options); // runs the double, not the real action
 ```
 
 Everything else — `__get`, `__set`, `__isset`, `__unset`, `__call`, and `__callStatic` — stays rejected. Those exist to intercept access to members that don't exist at all, so there's no fixed call shape for `expects()`/`allows()` to match against.
+
+This comes up most often with classes whose entire public API is `__call`-forwarded — AWS SDK clients, Redis connection wrappers, and similar. See [Why doesn't Double mock magic methods?](https://testdoublephp.com/blog/why-doesnt-double-mock-magic-methods) for what to double instead in those cases, and why it usually ends up being the stronger test.

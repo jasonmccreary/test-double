@@ -284,10 +284,21 @@ final class ClassGenerator
             ? sprintf('extends %s implements %s', $parents, $controlInterface)
             : sprintf('implements %s, %s', $parents, $controlInterface);
 
-        $methods = implode("\n", array_map(
-            $this->buildMethod(...),
-            $this->overridableMethods($reflections),
-        ));
+        $overridable = $this->overridableMethods($reflections);
+
+        $methods = implode("\n", array_map($this->buildMethod(...), $overridable));
+
+        // Inline passthru (see DoubleControlMethods::passthru()) needs a way to
+        // run a method's real, inherited body directly on the double itself —
+        // `parent::{$method}(...)` only compiles inside a class that actually
+        // has a parent, so this is skipped entirely for an `implements` target
+        // (an interface has no body to run). Every overridable method gets one
+        // of these regardless of whether inline passthru is ever used on a
+        // given double — cheap to generate, and simpler than threading "will
+        // this double ever need it" through class generation.
+        if ($keyword === 'extends') {
+            $methods .= "\n".implode("\n", array_map($this->buildRealMethod(...), $overridable));
+        }
 
         // A class extending a readonly one must be readonly itself (every
         // property on a readonly class stays readonly all the way down the
@@ -349,7 +360,44 @@ final class ClassGenerator
 
     private function buildMethod(\ReflectionMethod $method): string
     {
+        $call = sprintf(
+            '\\%s::intercept($this, %s, func_get_args())',
+            ProxyBehavior::class,
+            var_export($method->getName(), true),
+        );
+
+        return $this->buildMethodFromCall($method, $method->getName(), $call);
+    }
+
+    /**
+     * Inline passthru's real-body counterpart to buildMethod() above: same
+     * signature, but the body runs the method's actual inherited
+     * implementation via `parent::` instead of funneling through
+     * ProxyBehavior::intercept(). Named with a "__td_real_" prefix, never
+     * exposed as part of the double's own configurable API — see
+     * ProxyBehavior::handleUnmatchedCall()'s inline-passthru branch, the only
+     * caller.
+     */
+    private function buildRealMethod(\ReflectionMethod $method): string
+    {
         $name = $method->getName();
+        $forwarded = implode(', ', array_map(
+            static fn (\ReflectionParameter $parameter): string => ($parameter->isVariadic() ? '...' : '').'$'.$parameter->getName(),
+            $method->getParameters(),
+        ));
+
+        $call = sprintf('parent::%s(%s)', $name, $forwarded);
+
+        return $this->buildMethodFromCall($method, '__td_real_'.$name, $call);
+    }
+
+    /**
+     * Shared signature-building for buildMethod() and buildRealMethod() —
+     * both need the exact same visibility, parameters, and return type, and
+     * differ only in $overrideName and what expression $call evaluates.
+     */
+    private function buildMethodFromCall(\ReflectionMethod $method, string $overrideName, string $call): string
+    {
         $visibility = $method->isProtected() ? 'protected' : 'public';
         $declaringClass = $method->getDeclaringClass();
 
@@ -369,17 +417,11 @@ final class ClassGenerator
         $returnDeclaration = $returnTypeString !== null ? ': '.$returnTypeString : '';
         $isVoid = $returnTypeString === 'void';
 
-        $call = sprintf(
-            '\\%s::intercept($this, %s, func_get_args())',
-            ProxyBehavior::class,
-            var_export($name, true),
-        );
-
         // A by-reference-returning method (`function &foo()`) requires the override to
         // declare the same leading "&", or PHP rejects it as incompatible at eval()
         // time. Once declared by-reference, `return $call;` directly also fails —
         // "Only variable references should be returned by reference," since
-        // intercept()'s result isn't itself a reference — so assigning to a local
+        // the call's result isn't itself a reference — so assigning to a local
         // variable first is what makes the by-ref return actually silent.
         $reference = $method->returnsReference() ? '&' : '';
         $body = match (true) {
@@ -392,7 +434,7 @@ final class ClassGenerator
             "    %s function %s%s(%s)%s\n    {\n        %s\n    }\n",
             $visibility,
             $reference,
-            $name,
+            $overrideName,
             $parameters,
             $returnDeclaration,
             $body,

@@ -10,11 +10,11 @@
   </url>
   <url>
     <loc>https://testdoublephp.com/creating-doubles</loc>
-    <lastmod>2026-08-16</lastmod>
+    <lastmod>2026-09-10</lastmod>
   </url>
   <url>
     <loc>https://testdoublephp.com/expectations</loc>
-    <lastmod>2026-08-14</lastmod>
+    <lastmod>2026-09-10</lastmod>
   </url>
   <url>
     <loc>https://testdoublephp.com/argument-matching</loc>
@@ -26,7 +26,7 @@
   </url>
   <url>
     <loc>https://testdoublephp.com/failure-messages</loc>
-    <lastmod>2026-08-16</lastmod>
+    <lastmod>2026-09-10</lastmod>
   </url>
   <url>
     <loc>https://testdoublephp.com/test-suite-integration</loc>
@@ -34,11 +34,15 @@
   </url>
   <url>
     <loc>https://testdoublephp.com/migrating-from-mockery</loc>
-    <lastmod>2026-08-12</lastmod>
+    <lastmod>2026-09-10</lastmod>
   </url>
   <url>
     <loc>https://testdoublephp.com/contributing</loc>
     <lastmod>2026-08-05</lastmod>
+  </url>
+  <url>
+    <loc>https://testdoublephp.com/blog/why-doesnt-double-mock-magic-methods</loc>
+    <lastmod>2026-09-10</lastmod>
   </url>
   <url>
     <loc>https://testdoublephp.com/blog/what-about-unnamed-mocks</loc>
@@ -62,6 +66,6 @@
   </url>
   <url>
     <loc>https://testdoublephp.com/blog</loc>
-    <lastmod>2026-09-08</lastmod>
+    <lastmod>2026-09-10</lastmod>
   </url>
 </urlset>

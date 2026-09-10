@@ -136,13 +136,13 @@ The following similar call was made to `find`:
 
 This is deliberate: without it, a misconfigured `expects()` tends to surface as a confusing failure somewhere downstream instead — a `null` where you expected a real value, an assertion failing on the symptom instead of the cause. Only `expects()` raises this bar. A mismatched call to an `allows()`-only method still falls back to a safe default, the same as a method with nothing configured for it at all — `allows()` is the verb for "handle this case if it happens," not a promise about every call.
 
-The same rule applies in [Passthru mode](03-creating-doubles.md#passthru), and there it's worth a second look, since Passthru's whole premise is "real behavior unless overridden" — you might expect an unmatched call to simply delegate to the real object the way an unmatched call to an `allows()`-only method does. It doesn't. The message calls this out directly:
+The same rule applies in [Passthru mode](03-creating-doubles.md#passthru), and there it's worth a second look, since Passthru's whole premise is "real behavior unless overridden" — you might expect an unmatched call to simply run for real the way an unmatched call to an `allows()`-only method does. It doesn't. The message calls this out directly:
 
 ```php
 $logger = Double::for(Logger::class)->passthru($realLogger);
 $logger->expects('log')->with('hello')->returns(true);
 
-$logger->log('goodbye'); // fails, does not delegate to $realLogger
+$logger->log('goodbye'); // fails, does not run the real log()
 ```
 
 ```

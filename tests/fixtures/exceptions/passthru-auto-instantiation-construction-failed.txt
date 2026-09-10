@@ -1,2 +1,0 @@
-
-Can't auto-instantiate `ConcreteLogger` to passthru. Constructing it threw: "boom". You may need to pass an existing instance instead. For example: `->passthru($existingInstance)`.
