@@ -366,16 +366,21 @@ final class ClassGenerator
             var_export($method->getName(), true),
         );
 
-        return $this->buildMethodFromCall($method, $method->getName(), $call);
+        // Mirrors the real method's own visibility: this is a genuine
+        // override of that method, and PHP requires an override's visibility
+        // to be at least as permissive as what it overrides.
+        $visibility = $method->isProtected() ? 'protected' : 'public';
+
+        return $this->buildMethodFromCall($method, $method->getName(), $call, $visibility);
     }
 
     /**
-     * Inline passthru's real-body counterpart to buildMethod() above: same
+     * Passthru's real-body counterpart to buildMethod() above: same
      * signature, but the body runs the method's actual inherited
      * implementation via `parent::` instead of funneling through
      * ProxyBehavior::intercept(). Named with a "__td_real_" prefix, never
      * exposed as part of the double's own configurable API — see
-     * ProxyBehavior::handleUnmatchedCall()'s inline-passthru branch, the only
+     * ProxyBehavior::handleUnmatchedCall()'s Passthru branch, the only
      * caller.
      */
     private function buildRealMethod(\ReflectionMethod $method): string
@@ -388,17 +393,25 @@ final class ClassGenerator
 
         $call = sprintf('parent::%s(%s)', $name, $forwarded);
 
-        return $this->buildMethodFromCall($method, '__td_real_'.$name, $call);
+        // Always public, regardless of the real method's own visibility —
+        // unlike buildMethod() above, this isn't overriding anything (its
+        // name is invented, not inherited), so there's no visibility to
+        // mirror. It has to be callable from ProxyBehavior, a class outside
+        // the double entirely: calling a protected/private method from
+        // outside its own class scope doesn't raise a visibility error —
+        // PHP falls back to the target's __call() instead, if it has one
+        // (Laravel's Macroable trait does), which then rejects the call as
+        // an unknown method. Public is what avoids that silently wrong path.
+        return $this->buildMethodFromCall($method, '__td_real_'.$name, $call, 'public');
     }
 
     /**
      * Shared signature-building for buildMethod() and buildRealMethod() —
-     * both need the exact same visibility, parameters, and return type, and
-     * differ only in $overrideName and what expression $call evaluates.
+     * both need the exact same parameters and return type, and differ only
+     * in $overrideName, $visibility, and what expression $call evaluates.
      */
-    private function buildMethodFromCall(\ReflectionMethod $method, string $overrideName, string $call): string
+    private function buildMethodFromCall(\ReflectionMethod $method, string $overrideName, string $call, string $visibility): string
     {
-        $visibility = $method->isProtected() ? 'protected' : 'public';
         $declaringClass = $method->getDeclaringClass();
 
         $parameters = implode(', ', array_map(
