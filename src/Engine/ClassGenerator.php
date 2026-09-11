@@ -45,7 +45,7 @@ final class ClassGenerator
      */
     private static array $cache = [];
 
-    public function generate(string $target): string
+    public function generate(string $target, bool $override = false): string
     {
         if (! class_exists($target) && ! interface_exists($target)) {
             throw InvalidDoubleTargetException::doesNotExist($target);
@@ -66,7 +66,7 @@ final class ClassGenerator
 
         $keyword = $reflection->isInterface() ? 'implements' : 'extends';
 
-        return $this->generateFromReflections([$reflection], [$target], $keyword);
+        return $this->generateFromReflections([$reflection], [$target], $keyword, $override);
     }
 
     /**
@@ -87,7 +87,7 @@ final class ClassGenerator
             $targets,
         );
 
-        return $this->generateFromReflections($reflections, $targets, 'implements');
+        return $this->generateFromReflections($reflections, $targets, 'implements', override: false);
     }
 
     /**
@@ -118,22 +118,30 @@ final class ClassGenerator
      * @param  list<\ReflectionClass>  $reflections
      * @param  list<string>  $targets
      */
-    private function generateFromReflections(array $reflections, array $targets, string $keyword): string
+    private function generateFromReflections(array $reflections, array $targets, string $keyword, bool $override): string
     {
-        $cacheKey = $this->cacheKey($targets);
+        $cacheKey = $this->cacheKey($targets, $override);
 
         if (isset(self::$cache[$cacheKey])) {
             return self::$cache[$cacheKey];
         }
 
-        $this->assertNoReservedNameCollisions($targets, $reflections);
+        $collisions = $this->reservedNameCollisions($reflections);
+
+        if ($collisions !== [] && ! $override) {
+            throw ReservedNameCollisionException::forCollisions(implode('&', $targets), $collisions);
+        }
+
         $this->assertNoAbstractStaticMethods($targets, $reflections);
         $this->assertNoAbstractMagicMethods($targets, $reflections);
         $this->assertNoAbstractPropertyHooks($targets, $reflections);
 
         $className = $this->generateClassName($reflections);
 
-        eval($this->buildSource($className, $keyword, $targets, $reflections));
+        // Bare iff override actually resolved a real collision — passing
+        // override: true against a target with nothing to collide with
+        // generates the exact same class an ordinary double would.
+        eval($this->buildSource($className, $keyword, $targets, $reflections, bare: $collisions !== []));
 
         return self::$cache[$cacheKey] = $className;
     }
@@ -142,15 +150,18 @@ final class ClassGenerator
      * Sorted, not positional — generateForIntersection() merges overridable
      * methods across targets regardless of argument order, so `[A, B]` and
      * `[B, A]` should share one cached class rather than generating twice.
+     * $override is folded in separately, not sorted with the targets: the
+     * same target set generates a structurally different class (bare or
+     * not) depending on it, so the two must never collide in the cache.
      *
      * @param  list<string>  $targets
      */
-    private function cacheKey(array $targets): string
+    private function cacheKey(array $targets, bool $override): string
     {
         $sorted = $targets;
         sort($sorted);
 
-        return implode('&', $sorted);
+        return implode('&', $sorted).($override ? '|override' : '');
     }
 
     /**
@@ -161,10 +172,10 @@ final class ClassGenerator
      * private method as inherited, so a subclass declaring the same name
      * at any visibility has nothing to conflict with.
      *
-     * @param  list<string>  $targets
      * @param  list<\ReflectionClass>  $reflections
+     * @return list<string>
      */
-    private function assertNoReservedNameCollisions(array $targets, array $reflections): void
+    private function reservedNameCollisions(array $reflections): array
     {
         $declared = [];
 
@@ -174,11 +185,7 @@ final class ClassGenerator
             }
         }
 
-        $collisions = array_values(array_intersect(self::RESERVED_METHODS, $declared));
-
-        if ($collisions !== []) {
-            throw ReservedNameCollisionException::forCollisions(implode('&', $targets), $collisions);
-        }
+        return array_values(array_intersect(self::RESERVED_METHODS, $declared));
     }
 
     /**
@@ -270,7 +277,7 @@ final class ClassGenerator
      * @param  list<string>  $targets
      * @param  list<\ReflectionClass>  $reflections
      */
-    private function buildSource(string $fqcn, string $keyword, array $targets, array $reflections): string
+    private function buildSource(string $fqcn, string $keyword, array $targets, array $reflections, bool $bare): string
     {
         $position = strrpos($fqcn, '\\');
         $namespace = substr($fqcn, 0, $position);
@@ -281,12 +288,20 @@ final class ClassGenerator
             $targets,
         ));
 
-        // Every generated double implements DoubleInterface for real, not just as
-        // a docblock fiction for Double::for()'s @template/@return pairing. A
-        // single-class target uses `extends`, so the interface needs its own
-        // `implements` clause; an interface target already uses `implements`, so it
-        // just joins the list.
-        $controlInterface = '\\'.ltrim(DoubleInterface::class, '\\');
+        // An ordinary generated double implements DoubleInterface for real,
+        // not just as a docblock fiction for Double::for()'s
+        // @template/@return pairing — every one of the seven control verbs
+        // is a real, callable method. A bare (override-collision) double
+        // can't do that: at least one of those verb names is a real method
+        // the target itself declares, so DoubleControlMethods is never
+        // mixed in at all, and the double only promises IdentifiableDouble
+        // — real identity tracking, nothing else. Double::for() wraps it in
+        // OverriddenDouble, which is what actually carries the seven verbs
+        // for this double, forwarding each one back to the double this
+        // builds. A single-class target uses `extends`, so the interface
+        // needs its own `implements` clause; an interface target already
+        // uses `implements`, so it just joins the list.
+        $controlInterface = '\\'.ltrim($bare ? IdentifiableDouble::class : DoubleInterface::class, '\\');
         $inheritance = $keyword === 'extends'
             ? sprintf('extends %s implements %s', $parents, $controlInterface)
             : sprintf('implements %s, %s', $parents, $controlInterface);
@@ -323,7 +338,7 @@ final class ClassGenerator
             $readOnly,
             $shortName,
             $inheritance,
-            DoubleControlMethods::class,
+            $bare ? DoubleIdentity::class : DoubleControlMethods::class,
             $methods,
         );
     }

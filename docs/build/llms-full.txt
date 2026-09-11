@@ -189,6 +189,30 @@ Double::for(AuthorizerInterface::class);
 
 This does come up in practice. `allows()` is part of Laravel's own `Gate` contract, for instance. It's worth knowing about early, rather than discovering it as a confusing test failure later.
 
+### Overriding a Reserved Name Collision
+
+Passing `override: true` lets you double it anyway:
+
+```php
+$gate = Double::for(AuthorizerInterface::class, override: true);
+```
+
+The object this returns is a genuinely different kind of double. `allows()` already means something real on `AuthorizerInterface` — it can't also mean "configure an expectation" on that same object, so one of the two has to give way. Rather than quietly dropping just the one colliding verb and leaving you to discover, method by method, which of the seven still work, `override` reroutes control entirely: the object you get back carries none of the seven verbs itself. It wraps the real double instead, so every verb still works the same way regardless of which method actually collided:
+
+```php
+$gate->expects('allows')->with('edit-post')->returns(true);
+```
+
+The one thing that's genuinely different is handing the real, `AuthorizerInterface`-shaped object to whatever you're testing — the wrapper you're holding isn't one itself, so reach for `instance()`:
+
+```php
+$service = new PolicyChecker($gate->instance());
+```
+
+`strict()`, `passthru()`, `received()`, `unused()`, and `verify()` all work exactly as they do on any other double, called on the wrapper the same way `expects()` is above.
+
+`override: true` only changes anything when there's actually a collision to route around. Passed against a class with none, it's a no-op — `for()` returns the exact same double it always would. It also only supports a single target; combined with more than one target passed to `for()`, it's rejected.
+
 ## What Can't Be Doubled
 
 A couple of things are rejected when you call `for()`, with a clear reason, rather than failing in a confusing way later:
@@ -449,6 +473,8 @@ $verify($credential, $options); // runs the double, not the real action
 
 Everything else — `__get`, `__set`, `__isset`, `__unset`, `__call`, and `__callStatic` — stays rejected. Those exist to intercept access to members that don't exist at all, so there's no fixed call shape for `expects()`/`allows()` to match against.
 
+`__clone` being configurable is separate from what a plain `clone $double` does on its own, with nothing configured: the clone is a fully working double, sharing the original's expectations and call history rather than starting blank — the same way cloning a Mockery mock carries its state over, since Mockery's own state lives in ordinary instance properties that PHP's default `clone` already copies. This matters most when it happens somewhere you didn't write it: real code you're exercising via `passthru()` may clone `$this` internally (Eloquent's relation builders do, for instance), and the clone it produces keeps working exactly like the double it came from.
+
 This comes up most often with classes whose entire public API is `__call`-forwarded — AWS SDK clients, Redis connection wrappers, and similar. See [Why doesn't Double mock magic methods?](https://testdoublephp.com/blog/why-doesnt-double-mock-magic-methods) for what to double instead in those cases, and why it usually ends up being the stronger test.
 
 ---
@@ -560,6 +586,16 @@ $repository->allows('find')->with(Argument::satisfies(fn ($id) => $id > 100))->r
 ```
 
 For anything the other matchers don't cover, you may pass a predicate. One trade-off to keep in mind: a failure message can only describe this as `satisfies(...)`. It has no way to show what your closure checks. If you're using `satisfies()` to express "not this," "matches this pattern," or "contains this," the matchers above produce a clearer failure message for the same idea.
+
+## Custom Logic Across Every Argument
+
+```php
+$broadcaster->allows('broadcast')->with(Argument::all(
+    fn (array $channels, string $eventName, array $payload) => $eventName === 'foo'
+))->returns(true);
+```
+
+`satisfies()` above only ever sees one position. `all()` is the one matcher that sees the whole real argument list at once, spread into the predicate the same way `...$args` would — for a check that genuinely spans several arguments together, not just one. It must be the only thing passed to `with()`; a predicate that only cares about one position is better served by `satisfies()` there instead.
 
 ## Negating
 
@@ -892,6 +928,8 @@ When PHPUnit is present, a passing verification registers a genuine PHPUnit asse
 
 `JMac\Testing\Integrations\PHPUnit\VerifiesDoubles` is a trait you mix into your test suite to stop calling `->verify()` yourself. Unlike the two checks above, this one needs a deliberate step to enable — it hooks in via PHPUnit's `#[Before]`/`#[After]` attributes, so it only works on a suite built on `PHPUnit\Framework\TestCase`, which covers both PHPUnit and Pest, just wired in differently for each. See [Framework Integration](#framework-integration) below for the setup.
 
+Without it (or a manual `verify()`), `expects()`'s call-count promise is never checked — a call that's expected but never made passes silently, same as `allows()`.
+
 Once enabled, every double created during a test (and every `received()` assertion made on one) is checked automatically once that test finishes. `$double->verify()` still works everywhere, including here — adding the trait doesn't change what `verify()` does, it just gives you a way to stop calling it yourself. If you're on a different test runner, or don't want the trait, calling `verify()` explicitly, as shown in [Verification](06-verification.md), is the only thing you need.
 
 ## Driving Auto-Verification From a Custom Runner
@@ -1006,6 +1044,19 @@ $acquiredLock->expects('get')->returns(true);
 
 This is more setup than the bare mock needed, but it also matches the real type contract — Mockery's version only worked because it didn't check. See [What about "unnamed mocks"?](https://testdoublephp.com/blog/what-about-unnamed-mocks) for the fuller case against a bare, untyped mock.
 
+### Laravel's `Gate` (and Anything Else With a Real `allows()`, `expects()`, etc.)
+
+Laravel's `Gate` contract declares a real `allows()` method — the same name as Double's own `allows()` verb (see [Reserved Method Names](03-creating-doubles.md#reserved-method-names)). `Double::for(Gate::class)` throws rather than doubling it; `override: true` is the fix, covered fully in [Overriding a Reserved Name Collision](03-creating-doubles.md#overriding-a-reserved-name-collision):
+
+```php
+$gate = Double::for(Gate::class, override: true);
+$gate->expects('allows')->with('edit-post')->returns(true);
+
+Gate::swap($gate->instance());
+```
+
+That's `Gate::swap($gate->instance())`, not `Gate::swap($gate)` — `$gate` here is the wrapper `override: true` hands back, not something `Gate`-shaped itself. And regardless of whether a given facade needed `override` to get a double at all: once you've `swap()`'d one in, configure it directly (`$gate->expects(...)`, as above) rather than calling `Gate::expects(...)`/`Gate::shouldReceive(...)` afterward — Laravel's own `Facade::isMock()` check doesn't recognize a Double, so those static passthroughs quietly build and swap in a brand-new, unrelated Mockery mock instead of reaching the one you already configured.
+
 ### Stubbing Methods Behind `__call()`
 
 Mockery would stub any method name on a mock, whether or not the real class declared it. Double requires a method to be reflectable on the double's target, so this doesn't carry over as-is. It mostly comes up with classes whose public API is entirely `__call()`-forwarded — AWS SDK clients, Redis connection wrappers, and similar. See [Why doesn't Double mock magic methods?](https://testdoublephp.com/blog/why-doesnt-double-mock-magic-methods) for two real examples of what to double instead — and one case where the fix isn't a Double concern at all.
@@ -1043,6 +1094,8 @@ $connector->expects('connectToCluster')->with(
 
 `Argument::remaining()` (see [Trailing Arguments](05-argument-matching.md#trailing-arguments)) is the explicit equivalent of Mockery's implicit "closure took fewer params than the call had arguments" behavior.
 
+If the closure's logic genuinely spans several arguments together — not just "ignore the rest," but a check that needs two or more real values at once — `Argument::all()` (see [Custom Logic Across Every Argument](05-argument-matching.md#custom-logic-across-every-argument)) is the direct equivalent of `withArgs(closure)` itself: it hands the predicate the whole real argument list, the same way Mockery always did.
+
 ### Comparison Is Strict, Not Loose
 
 A plain value passed to `with()`/`returns()` is compared with `===`-like strictness. Mockery's default comparison is loose `==`, which for an object argument checked against a string triggers `__toString()` coercion — a `Carbon` instance and a date string can compare equal under Mockery even though they're different types. Double never does this coercion; the two are simply unequal.
@@ -1077,7 +1130,7 @@ A couple of Mockery features aren't available here, by design:
 - **Aliases.** If you're used to `shouldReceive()`, `andReturn()`, or other alternate spellings for the same concept, those don't exist here. Each concept has exactly one verb. See [One Clean API](01-introduction.md#one-clean-api).
 - **`ducktype()`.** Matching "anything with these methods" isn't included. `Argument::satisfies()` covers the same need without a dedicated verb.
 - **Static method mocking** (Mockery's `alias:` mocks). Mockery's own documentation already treats this as a last resort, and this library doesn't attempt to improve on it. See [Static Methods](04-expectations.md#static-methods).
-- **`byDefault()`.** Marking an expectation as a fallback that a later, more specific one can override. For the common case (an unbounded fallback, `allows()` with no `times()`/minimum), just register the fallback first and the override second: expectations are matched most-recently-registered first, falling back to earlier ones when a later one's `with()` constraints don't match the actual call. What doesn't carry over is Mockery's eviction behavior: a `byDefault()` expectation with its own call-count requirement has that requirement silently dropped once any other expectation exists for the method, even if that other expectation never actually matches a call. Here, every registered expectation's minimum stays in force and is checked at `verify()`.
+- **`byDefault()`.** Marking an expectation as a fallback that a later, more specific one can override. For the common case (an unbounded fallback, `allows()` with no `times()`/minimum), just register the fallback first and the override second: expectations are matched most-recently-registered first, falling back to earlier ones when a later one's `with()` constraints don't match the actual call, or its own `times()` budget is exhausted. What doesn't carry over is Mockery's eviction behavior: a `byDefault()` expectation with its own call-count requirement has that requirement silently dropped once any other expectation exists for the method, even if that other expectation never actually matches a call. Here, every registered expectation's minimum stays in force and is checked at `verify()`.
 
 ---
 

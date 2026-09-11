@@ -66,6 +66,30 @@ Double::for(AuthorizerInterface::class);
 
 This does come up in practice. `allows()` is part of Laravel's own `Gate` contract, for instance. It's worth knowing about early, rather than discovering it as a confusing test failure later.
 
+### Overriding a Reserved Name Collision
+
+Passing `override: true` lets you double it anyway:
+
+```php
+$gate = Double::for(AuthorizerInterface::class, override: true);
+```
+
+The object this returns is a genuinely different kind of double. `allows()` already means something real on `AuthorizerInterface` — it can't also mean "configure an expectation" on that same object, so one of the two has to give way. Rather than quietly dropping just the one colliding verb and leaving you to discover, method by method, which of the seven still work, `override` reroutes control entirely: the object you get back carries none of the seven verbs itself. It wraps the real double instead, so every verb still works the same way regardless of which method actually collided:
+
+```php
+$gate->expects('allows')->with('edit-post')->returns(true);
+```
+
+The one thing that's genuinely different is handing the real, `AuthorizerInterface`-shaped object to whatever you're testing — the wrapper you're holding isn't one itself, so reach for `instance()`:
+
+```php
+$service = new PolicyChecker($gate->instance());
+```
+
+`strict()`, `passthru()`, `received()`, `unused()`, and `verify()` all work exactly as they do on any other double, called on the wrapper the same way `expects()` is above.
+
+`override: true` only changes anything when there's actually a collision to route around. Passed against a class with none, it's a no-op — `for()` returns the exact same double it always would. It also only supports a single target; combined with more than one target passed to `for()`, it's rejected.
+
 ## What Can't Be Doubled
 
 A couple of things are rejected when you call `for()`, with a clear reason, rather than failing in a confusing way later:

@@ -9,6 +9,9 @@ namespace JMac\Testing\Exceptions;
  * method with the same name as one of Double's own control verbs
  * (expects, allows, strict, passthru, received, unused, verify) — a deliberate,
  * permanent trade-off (see DoubleControlMethods), not a later hardening pass.
+ * `Double::for($target, override: true)` is the escape hatch (see
+ * OverriddenDouble) — named directly in the message below rather than left
+ * for the caller to discover on their own.
  */
 class ReservedNameCollisionException extends DoubleException
 {
@@ -37,11 +40,25 @@ class ReservedNameCollisionException extends DoubleException
         $last = array_pop($backtickedNames);
         $names = $backtickedNames === [] ? $last : implode(', ', $backtickedNames).' and '.$last;
 
-        return sprintf(
+        $message = sprintf(
             'Can\'t create a double for `%s`. It contains %s which %s with Double\'s internal methods.',
             $this->target,
             $names,
             count($this->collisions) === 1 ? 'collides' : 'collide',
         );
+
+        // override: true only ever applies to a single target — this exception
+        // also fires for an intersection double (`$target` then reads
+        // "A&B"), where `Double::for()` itself rejects `override` outright
+        // (see its own InvalidArgumentException), so suggesting it here would
+        // be both invalid PHP syntax and a dead end.
+        if (! str_contains($this->target, '&')) {
+            $message .= sprintf(
+                ' You may use `Double::for(%s::class, override: true)` to overcome this.',
+                $this->target,
+            );
+        }
+
+        return $message;
     }
 }
