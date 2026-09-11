@@ -112,12 +112,71 @@ final class MethodExpectationTest extends TestCase
         $expectation->with(Argument::none(), 2);
     }
 
+    /**
+     * Unlike every other constraint, the predicate's own arity is what
+     * decides how many arguments it cares about — a 2-parameter predicate
+     * still matches a 3-argument call, since matchesArguments() bypasses
+     * positional arity checking for this matcher entirely.
+     */
+    public function test_with_all_hands_the_whole_argument_list_to_the_predicate(): void
+    {
+        $expectation = (new MethodExpectation('broadcast', required: false))
+            ->with(Argument::all(fn (array $channels, string $eventName): bool => $eventName === 'foo'));
+
+        $this->assertTrue($expectation->matchesArguments([['a'], 'foo', ['payload' => true]]));
+        $this->assertFalse($expectation->matchesArguments([['a'], 'bar', ['payload' => true]]));
+    }
+
+    public function test_with_rejects_all_combined_with_other_arguments(): void
+    {
+        $expectation = new MethodExpectation('find', required: false);
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        $expectation->with(Argument::all(fn (): bool => true), 2);
+    }
+
+    public function test_compare_arguments_is_null_when_all_matches(): void
+    {
+        $expectation = (new MethodExpectation('find', required: true))
+            ->with(Argument::all(fn (int $id): bool => $id > 0));
+
+        $this->assertNull($expectation->compareArguments([1]));
+    }
+
+    /**
+     * A joint mismatch isn't a positional diff — there's no single argument
+     * index it belongs to — so it gets its own 'joint' kind instead of being
+     * forced into a 'comparisons' entry that would misattribute the failure
+     * to whichever position happened to be index 0.
+     */
+    public function test_compare_arguments_reports_a_joint_mismatch_by_its_own_kind(): void
+    {
+        $expectation = (new MethodExpectation('find', required: true))
+            ->with(Argument::all(fn (int $id, string $name): bool => $id > 0 && $name !== ''));
+
+        $this->assertSame(
+            ['kind' => 'joint', 'text' => "arguments did not jointly satisfy predicate: (0, 'taylor')"],
+            $expectation->compareArguments([0, 'taylor']),
+        );
+    }
+
     public function test_describe_renders_none_as_no_arguments(): void
     {
         $expectation = (new MethodExpectation('find', required: true))->with(Argument::none());
 
         $this->assertSame(
             'expected `find(no arguments)` to be called exactly 1 time, but it was never called',
+            $expectation->describe(),
+        );
+    }
+
+    public function test_describe_renders_all_as_all_ellipsis(): void
+    {
+        $expectation = (new MethodExpectation('find', required: true))->with(Argument::all(fn (): bool => true));
+
+        $this->assertSame(
+            'expected `find(all(...))` to be called exactly 1 time, but it was never called',
             $expectation->describe(),
         );
     }
@@ -549,6 +608,52 @@ final class MethodExpectationTest extends TestCase
                 'kind' => 'comparisons',
                 'comparisons' => [
                     ['index' => 0, 'differs' => true, 'text' => "- '…aaaaaaaaaaaabazaaaaaaaaaaaa…'\n+ '…aaaaaaaaaaaaBAZaaaaaaaaaaaa…'"],
+                ],
+            ],
+            $expectation->compareArguments([$actual]),
+        );
+    }
+
+    /**
+     * Two arrays with the same element count but different values both
+     * describe() as "array(2)" — without a fallback, the diff would show
+     * "- array(2)\n+ array(2)", which is no diagnostic help at all.
+     */
+    public function test_compare_arguments_dumps_arrays_whose_short_descriptions_collide(): void
+    {
+        $expected = ['account_id' => 1, 'name' => 'taylor'];
+        $actual = ['account_id' => '1', 'name' => 'taylor'];
+
+        $expectation = (new MethodExpectation('getCount', required: true))->with($expected);
+
+        $this->assertSame(
+            [
+                'kind' => 'comparisons',
+                'comparisons' => [
+                    ['index' => 0, 'differs' => true, 'text' => sprintf("- %s\n+ %s", var_export($expected, true), var_export($actual, true))],
+                ],
+            ],
+            $expectation->compareArguments([$actual]),
+        );
+    }
+
+    /**
+     * A differing element count already reads clearly as "array(2)" vs.
+     * "array(3)" — no need for the full dump when the short form isn't
+     * ambiguous.
+     */
+    public function test_compare_arguments_does_not_dump_arrays_whose_short_descriptions_differ(): void
+    {
+        $expected = ['a' => 1, 'b' => 2];
+        $actual = ['a' => 1, 'b' => 2, 'c' => 3];
+
+        $expectation = (new MethodExpectation('getCount', required: true))->with($expected);
+
+        $this->assertSame(
+            [
+                'kind' => 'comparisons',
+                'comparisons' => [
+                    ['index' => 0, 'differs' => true, 'text' => "- array(2)\n+ array(3)"],
                 ],
             ],
             $expectation->compareArguments([$actual]),

@@ -121,4 +121,6 @@ $verify($credential, $options); // runs the double, not the real action
 
 Everything else — `__get`, `__set`, `__isset`, `__unset`, `__call`, and `__callStatic` — stays rejected. Those exist to intercept access to members that don't exist at all, so there's no fixed call shape for `expects()`/`allows()` to match against.
 
+`__clone` being configurable is separate from what a plain `clone $double` does on its own, with nothing configured: the clone is a fully working double, sharing the original's expectations and call history rather than starting blank — the same way cloning a Mockery mock carries its state over, since Mockery's own state lives in ordinary instance properties that PHP's default `clone` already copies. This matters most when it happens somewhere you didn't write it: real code you're exercising via `passthru()` may clone `$this` internally (Eloquent's relation builders do, for instance), and the clone it produces keeps working exactly like the double it came from.
+
 This comes up most often with classes whose entire public API is `__call`-forwarded — AWS SDK clients, Redis connection wrappers, and similar. See [Why doesn't Double mock magic methods?](https://testdoublephp.com/blog/why-doesnt-double-mock-magic-methods) for what to double instead in those cases, and why it usually ends up being the stronger test.

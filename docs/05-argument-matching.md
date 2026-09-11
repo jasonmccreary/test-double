@@ -104,6 +104,16 @@ $repository->allows('find')->with(Argument::satisfies(fn ($id) => $id > 100))->r
 
 For anything the other matchers don't cover, you may pass a predicate. One trade-off to keep in mind: a failure message can only describe this as `satisfies(...)`. It has no way to show what your closure checks. If you're using `satisfies()` to express "not this," "matches this pattern," or "contains this," the matchers above produce a clearer failure message for the same idea.
 
+## Custom Logic Across Every Argument
+
+```php
+$broadcaster->allows('broadcast')->with(Argument::all(
+    fn (array $channels, string $eventName, array $payload) => $eventName === 'foo'
+))->returns(true);
+```
+
+`satisfies()` above only ever sees one position. `all()` is the one matcher that sees the whole real argument list at once, spread into the predicate the same way `...$args` would — for a check that genuinely spans several arguments together, not just one. It must be the only thing passed to `with()`; a predicate that only cares about one position is better served by `satisfies()` there instead.
+
 ## Negating
 
 ```php

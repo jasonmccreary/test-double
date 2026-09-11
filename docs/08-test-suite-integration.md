@@ -18,6 +18,8 @@ When PHPUnit is present, a passing verification registers a genuine PHPUnit asse
 
 `JMac\Testing\Integrations\PHPUnit\VerifiesDoubles` is a trait you mix into your test suite to stop calling `->verify()` yourself. Unlike the two checks above, this one needs a deliberate step to enable — it hooks in via PHPUnit's `#[Before]`/`#[After]` attributes, so it only works on a suite built on `PHPUnit\Framework\TestCase`, which covers both PHPUnit and Pest, just wired in differently for each. See [Framework Integration](#framework-integration) below for the setup.
 
+Without it (or a manual `verify()`), `expects()`'s call-count promise is never checked — a call that's expected but never made passes silently, same as `allows()`.
+
 Once enabled, every double created during a test (and every `received()` assertion made on one) is checked automatically once that test finishes. `$double->verify()` still works everywhere, including here — adding the trait doesn't change what `verify()` does, it just gives you a way to stop calling it yourself. If you're on a different test runner, or don't want the trait, calling `verify()` explicitly, as shown in [Verification](06-verification.md), is the only thing you need.
 
 ## Driving Auto-Verification From a Custom Runner

@@ -32,6 +32,20 @@ final class Argument
         return new PredicateMatcher($predicate);
     }
 
+    /**
+     * Unlike every other matcher here, this one sees the whole real argument
+     * list at once instead of a single position — must be the only argument
+     * passed to with(). Reach for this when a check genuinely spans several
+     * arguments together; for a check that only ever cares about one
+     * position, `satisfies()` at that position is the better fit.
+     *
+     * @param  callable(mixed...): bool  $predicate
+     */
+    public static function all(callable $predicate): Matcher
+    {
+        return new AllMatcher($predicate);
+    }
+
     public static function capture(mixed &$reference): Matcher
     {
         return new CaptureMatcher($reference);

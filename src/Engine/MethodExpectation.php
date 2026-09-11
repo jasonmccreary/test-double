@@ -7,6 +7,7 @@ namespace JMac\Testing\Engine;
 use JMac\Testing\Diagnostics\Pluralizer;
 use JMac\Testing\Diagnostics\StringDiffer;
 use JMac\Testing\Diagnostics\ValueFormatter;
+use JMac\Testing\Matching\AllMatcher;
 use JMac\Testing\Matching\CaptureMatcher;
 use JMac\Testing\Matching\EqualsMatcher;
 use JMac\Testing\Matching\Matcher;
@@ -93,6 +94,12 @@ final class MethodExpectation
             if ($matcher instanceof NoneMatcher && count($constraints) !== 1) {
                 throw new \InvalidArgumentException(
                     '`Argument::none()` must be the only argument passed to `with()`.',
+                );
+            }
+
+            if ($matcher instanceof AllMatcher && count($constraints) !== 1) {
+                throw new \InvalidArgumentException(
+                    '`Argument::all()` must be the only argument passed to `with()`.',
                 );
             }
         }
@@ -228,6 +235,14 @@ final class MethodExpectation
             return $arguments === [];
         }
 
+        // Argument::all() as the sole constraint hands the whole
+        // real argument list to the predicate at once — with() already
+        // guarantees it can only ever appear alone, and its own arity is the
+        // predicate's business, not a positional count to enforce here.
+        if ($constraints !== [] && $constraints[0] instanceof AllMatcher) {
+            return $constraints[0]->matches($arguments);
+        }
+
         // Argument::remaining() as the trailing constraint means "however
         // many further arguments there are, they're unconstrained" — drop
         // it and require only a minimum count instead of an exact one.
@@ -264,6 +279,7 @@ final class MethodExpectation
      * without this needing any awareness of it.
      *
      * @return array{kind: 'arity', text: string}
+     *                                            | array{kind: 'joint', text: string}
      *                                            | array{kind: 'comparisons', comparisons: list<array{index: int, differs: bool, text: string}>}
      *                                            | null
      */
@@ -279,6 +295,18 @@ final class MethodExpectation
             return $arguments === []
                 ? null
                 : ['kind' => 'arity', 'text' => sprintf('expected no arguments, got %s', Pluralizer::pluralize(count($arguments), 'argument', 'arguments'))];
+        }
+
+        // Not a positional diff — 'comparisons' entries are always labeled
+        // against one declared parameter (see ArgumentLabeler), which would
+        // misattribute a joint failure to whichever position happened to be
+        // index 0. 'joint' is its own kind so callers that only special-case
+        // 'comparisons' safely skip rendering a diff and fall back to the
+        // predicate's own explanation instead.
+        if ($constraints !== [] && $constraints[0] instanceof AllMatcher) {
+            $explanation = $constraints[0]->explainMismatch($arguments);
+
+            return $explanation === null ? null : ['kind' => 'joint', 'text' => $explanation];
         }
 
         $matchesRemaining = $constraints !== [] && end($constraints) instanceof RemainingMatcher;
@@ -330,9 +358,12 @@ final class MethodExpectation
     /**
      * The "- expected\n+ actual" pair for one differing argument. Only
      * EqualsMatcher — a bare literal passed to with() — wraps a raw value
-     * worth diffing directly when both sides are long strings; every other
-     * shape (type checks, patterns, predicates, short values) falls back to
-     * the matcher's own describe() paired against the actual value.
+     * worth diffing directly: long strings get StringDiffer, and two arrays
+     * whose ValueFormatter::describe() output would otherwise collide (same
+     * element count, different content) get a full var_export() dump
+     * instead of two identical-looking "array(N)" lines. Every other shape
+     * (type checks, patterns, predicates, short values) falls back to the
+     * matcher's own describe() paired against the actual value.
      */
     private static function describeArgumentDiff(Matcher $matcher, mixed $actual): string
     {
@@ -341,6 +372,10 @@ final class MethodExpectation
 
             if (is_string($expected) && is_string($actual) && strlen($expected) + strlen($actual) >= StringDiffer::MIN_LENGTH_TO_DIFF) {
                 return StringDiffer::diff($expected, $actual);
+            }
+
+            if (is_array($expected) && is_array($actual) && ValueFormatter::describe($expected) === ValueFormatter::describe($actual)) {
+                return sprintf("- %s\n+ %s", var_export($expected, true), var_export($actual, true));
             }
         }
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace JMac\Testing\Tests\Matching;
 
+use JMac\Testing\Matching\AllMatcher;
 use JMac\Testing\Matching\AnyMatcher;
 use JMac\Testing\Matching\Argument;
 use JMac\Testing\Matching\ContainsMatcher;
@@ -68,6 +69,15 @@ final class ArgumentTest extends TestCase
     public function test_none_produces_a_none_matcher(): void
     {
         $this->assertInstanceOf(NoneMatcher::class, Argument::none());
+    }
+
+    public function test_all_produces_an_all_matcher(): void
+    {
+        $matcher = Argument::all(fn (int $id, string $name): bool => $id > 0 && $name !== '');
+
+        $this->assertInstanceOf(AllMatcher::class, $matcher);
+        $this->assertTrue($matcher->matches([1, 'taylor']));
+        $this->assertFalse($matcher->matches([0, 'taylor']));
     }
 
     public function test_same_produces_a_same_matcher(): void
