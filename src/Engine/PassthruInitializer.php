@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace JMac\Testing\Engine;
 
 use JMac\Testing\Exceptions\PassthruAutoInstantiationException;
+use JMac\Testing\Exceptions\PassthruTypeMismatchException;
 
 /**
  * @internal
@@ -50,17 +51,34 @@ final class PassthruInitializer
     /**
      * An existing instance was supplied — copies its property values onto
      * $double via reflection instead of keeping it as a separate delegate.
-     * ReflectionClass::getProperties() already walks the whole inheritance
-     * chain and resolves private inherited properties to their correct
-     * declaring scope, so a single pass over $realInstance's own reflection
-     * is enough; no manual parent-class walk needed. Only initialized
-     * properties are copied — an uninitialized typed property has nothing to
-     * read, and $double is already in that same uninitialized state for
-     * anything it doesn't receive here.
+     * $realInstance must be $target or one of its subclasses: passthru only
+     * ever runs $target's own real method bodies (see
+     * ClassGenerator::buildRealMethod()), never $realInstance's actual
+     * class's, so a subclass's own overridden behavior never comes into play
+     * regardless — an unrelated class would have nothing in common with
+     * $target for those bodies to run against at all.
+     *
+     * Reflects $target's own declared properties, not $realInstance's actual
+     * class — deliberately: if $realInstance is a subclass with its own
+     * extra properties, those aren't part of $target's state and $target's
+     * real methods could never read them anyway, so copying them would only
+     * ever be dead weight (and, since the double's class hierarchy doesn't
+     * declare them, an outright error under PHP's dynamic-property rules).
+     * ReflectionClass::getProperties() already walks $target's whole
+     * inheritance chain and resolves private inherited properties to their
+     * correct declaring scope, so a single pass over $target's own
+     * reflection is enough. Only initialized properties are copied — an
+     * uninitialized typed property has nothing to read, and $double is
+     * already in that same uninitialized state for anything it doesn't
+     * receive here.
      */
-    public static function copyState(object $double, object $realInstance): void
+    public static function copyState(object $double, object $realInstance, string $target): void
     {
-        foreach ((new \ReflectionClass($realInstance))->getProperties() as $property) {
+        if (! $realInstance instanceof $target) {
+            throw new PassthruTypeMismatchException($target, $realInstance::class);
+        }
+
+        foreach ((new \ReflectionClass($target))->getProperties() as $property) {
             if ($property->isStatic() || ! $property->isInitialized($realInstance)) {
                 continue;
             }

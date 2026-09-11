@@ -1,0 +1,2 @@
+
+`passthru()` was given an instance of `stdClass`, but this is a double for `Logger`. The instance passed to `passthru()` must be `Logger` or one of its subclasses.

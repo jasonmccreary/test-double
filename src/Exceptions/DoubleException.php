@@ -77,7 +77,7 @@ abstract class DoubleException extends \RuntimeException implements Diagnostic
 
         return "\n\nNote: this double is in passthru mode, but using `expects()` means every "
             .'call needs to be configured. Use `allows()` instead if you want '
-            .'unmatched calls passed through to the real object.';
+            .'unmatched calls to run for real.';
     }
 
     /**

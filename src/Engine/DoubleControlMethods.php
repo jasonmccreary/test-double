@@ -58,7 +58,7 @@ trait DoubleControlMethods
         $realInstance ??= $state->knownInstance();
 
         if ($realInstance !== null) {
-            PassthruInitializer::copyState($this, $realInstance);
+            PassthruInitializer::copyState($this, $realInstance, $state->target());
         } else {
             PassthruInitializer::assertConstructible($state->target());
         }

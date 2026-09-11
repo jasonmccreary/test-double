@@ -6,9 +6,11 @@ namespace JMac\Testing\Tests\Engine;
 
 use JMac\Testing\Double;
 use JMac\Testing\Exceptions\PassthruAutoInstantiationException;
+use JMac\Testing\Exceptions\PassthruTypeMismatchException;
 use JMac\Testing\Integrations\PHPUnit\PHPUnitExpectationCallMismatchException;
 use JMac\Testing\Tests\Support\BookRepositoryInterface;
 use JMac\Testing\Tests\Support\ConcreteLogger;
+use JMac\Testing\Tests\Support\ExtendedGreeter;
 use JMac\Testing\Tests\Support\InstantiableLogger;
 use JMac\Testing\Tests\Support\LoggerInterface;
 use JMac\Testing\Tests\Support\RealLogger;
@@ -184,5 +186,29 @@ final class PassthruModeTest extends TestCase
 
         $this->assertSame([[5]], Double::stateFor($double)->callsFor('calculate'));
         $this->assertSame([[5]], Double::stateFor($double)->callsFor('double'));
+    }
+
+    public function test_passthru_rejects_an_instance_unrelated_to_the_doubled_class(): void
+    {
+        $double = Double::for(StatefulGreeter::class);
+
+        $this->expectException(PassthruTypeMismatchException::class);
+        $this->expectExceptionMessage('must be `JMac\Testing\Tests\Support\StatefulGreeter` or one of its subclasses');
+
+        $double->passthru(new \stdClass);
+    }
+
+    /**
+     * A subclass instance is accepted — real PHP subtyping, the same as any
+     * type hint would allow. But passthru only ever runs the *doubled*
+     * class's own method bodies, never the subclass's overrides: greet()
+     * here is StatefulGreeter's real implementation, not ExtendedGreeter's.
+     * That's a real, documented limit, not a bug.
+     */
+    public function test_passthru_accepts_a_subclass_instance_but_only_runs_the_doubled_classs_own_methods(): void
+    {
+        $double = Double::for(StatefulGreeter::class)->passthru(new ExtendedGreeter('Ada'));
+
+        $this->assertSame('Hello, Ada!', $double->greet());
     }
 }

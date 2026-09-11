@@ -15,6 +15,7 @@ use JMac\Testing\Exceptions\MagicMethodException;
 use JMac\Testing\Exceptions\ModeConfigurationException;
 use JMac\Testing\Exceptions\OutOfOrderCallException;
 use JMac\Testing\Exceptions\PassthruAutoInstantiationException;
+use JMac\Testing\Exceptions\PassthruTypeMismatchException;
 use JMac\Testing\Exceptions\ReservedNameCollisionException;
 use JMac\Testing\Exceptions\StaticMethodException;
 use JMac\Testing\Exceptions\UnexpectedCallException;
@@ -300,6 +301,13 @@ final class ExceptionMessagesTest extends GoldenFileTestCase
         $exception = PassthruAutoInstantiationException::isInterface('BookRepositoryInterface');
 
         $this->assertMatchesGolden('passthru-auto-instantiation-interface', $exception->getMessage());
+    }
+
+    public function test_renders_passthru_type_mismatch(): void
+    {
+        $exception = new PassthruTypeMismatchException('Logger', 'stdClass');
+
+        $this->assertMatchesGolden('passthru-type-mismatch', $exception->getMessage());
     }
 
     public function test_renders_unknown_method(): void
