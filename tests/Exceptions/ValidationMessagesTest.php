@@ -96,6 +96,18 @@ final class ValidationMessagesTest extends GoldenFileTestCase
         }
     }
 
+    public function test_renders_with_all_not_alone(): void
+    {
+        $expectation = new MethodExpectation('find', required: false);
+
+        try {
+            $expectation->with(Argument::all(fn (): bool => true), 1);
+            $this->fail('Expected an InvalidArgumentException.');
+        } catch (\InvalidArgumentException $exception) {
+            $this->assertMatchesGolden('with-all-must-be-alone', $exception->getMessage());
+        }
+    }
+
     public function test_renders_returns_with_no_values(): void
     {
         $expectation = new MethodExpectation('find', required: false);

@@ -112,12 +112,71 @@ final class MethodExpectationTest extends TestCase
         $expectation->with(Argument::none(), 2);
     }
 
+    /**
+     * Unlike every other constraint, the predicate's own arity is what
+     * decides how many arguments it cares about — a 2-parameter predicate
+     * still matches a 3-argument call, since matchesArguments() bypasses
+     * positional arity checking for this matcher entirely.
+     */
+    public function test_with_all_hands_the_whole_argument_list_to_the_predicate(): void
+    {
+        $expectation = (new MethodExpectation('broadcast', required: false))
+            ->with(Argument::all(fn (array $channels, string $eventName): bool => $eventName === 'foo'));
+
+        $this->assertTrue($expectation->matchesArguments([['a'], 'foo', ['payload' => true]]));
+        $this->assertFalse($expectation->matchesArguments([['a'], 'bar', ['payload' => true]]));
+    }
+
+    public function test_with_rejects_all_combined_with_other_arguments(): void
+    {
+        $expectation = new MethodExpectation('find', required: false);
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        $expectation->with(Argument::all(fn (): bool => true), 2);
+    }
+
+    public function test_compare_arguments_is_null_when_all_matches(): void
+    {
+        $expectation = (new MethodExpectation('find', required: true))
+            ->with(Argument::all(fn (int $id): bool => $id > 0));
+
+        $this->assertNull($expectation->compareArguments([1]));
+    }
+
+    /**
+     * A joint mismatch isn't a positional diff — there's no single argument
+     * index it belongs to — so it gets its own 'joint' kind instead of being
+     * forced into a 'comparisons' entry that would misattribute the failure
+     * to whichever position happened to be index 0.
+     */
+    public function test_compare_arguments_reports_a_joint_mismatch_by_its_own_kind(): void
+    {
+        $expectation = (new MethodExpectation('find', required: true))
+            ->with(Argument::all(fn (int $id, string $name): bool => $id > 0 && $name !== ''));
+
+        $this->assertSame(
+            ['kind' => 'joint', 'text' => "arguments did not jointly satisfy predicate: (0, 'taylor')"],
+            $expectation->compareArguments([0, 'taylor']),
+        );
+    }
+
     public function test_describe_renders_none_as_no_arguments(): void
     {
         $expectation = (new MethodExpectation('find', required: true))->with(Argument::none());
 
         $this->assertSame(
             'expected `find(no arguments)` to be called exactly 1 time, but it was never called',
+            $expectation->describe(),
+        );
+    }
+
+    public function test_describe_renders_all_as_all_ellipsis(): void
+    {
+        $expectation = (new MethodExpectation('find', required: true))->with(Argument::all(fn (): bool => true));
+
+        $this->assertSame(
+            'expected `find(all(...))` to be called exactly 1 time, but it was never called',
             $expectation->describe(),
         );
     }

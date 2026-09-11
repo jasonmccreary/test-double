@@ -517,6 +517,35 @@ final class DoubleTest extends TestCase
         $double->received('combine')->with('-', Argument::remaining());
     }
 
+    /**
+     * Argument::all()'s predicate sees the whole real call at once — here,
+     * both the glue and every variadic part together — the same way
+     * Mockery's withArgs(closure) used to, rather than one value per
+     * position.
+     */
+    public function test_with_all_matches_against_the_whole_real_argument_list(): void
+    {
+        $double = Double::for(VariadicInterface::class);
+
+        $double->allows('combine')
+            ->with(Argument::all(fn (string $glue, string ...$parts): bool => $glue === '-' && count($parts) === 2))
+            ->returns('stubbed');
+
+        $this->assertSame('stubbed', $double->combine('-', 'a', 'b'));
+    }
+
+    public function test_with_all_call_mismatch_reports_the_joint_failure(): void
+    {
+        $double = Double::for(VariadicInterface::class);
+
+        $double->expects('combine')
+            ->with(Argument::all(fn (string $glue, string ...$parts): bool => $glue === '-'));
+
+        $this->expectException(PHPUnitExpectationCallMismatchException::class);
+
+        $double->combine('+', 'a', 'b');
+    }
+
     public function test_never_forbids_any_call_at_all(): void
     {
         $double = Double::for(BookRepositoryInterface::class);

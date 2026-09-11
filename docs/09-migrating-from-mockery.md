@@ -86,6 +86,8 @@ $connector->expects('connectToCluster')->with(
 
 `Argument::remaining()` (see [Trailing Arguments](05-argument-matching.md#trailing-arguments)) is the explicit equivalent of Mockery's implicit "closure took fewer params than the call had arguments" behavior.
 
+If the closure's logic genuinely spans several arguments together — not just "ignore the rest," but a check that needs two or more real values at once — `Argument::all()` (see [Custom Logic Across Every Argument](05-argument-matching.md#custom-logic-across-every-argument)) is the direct equivalent of `withArgs(closure)` itself: it hands the predicate the whole real argument list, the same way Mockery always did.
+
 ### Comparison Is Strict, Not Loose
 
 A plain value passed to `with()`/`returns()` is compared with `===`-like strictness. Mockery's default comparison is loose `==`, which for an object argument checked against a string triggers `__toString()` coercion — a `Carbon` instance and a date string can compare equal under Mockery even though they're different types. Double never does this coercion; the two are simply unequal.
