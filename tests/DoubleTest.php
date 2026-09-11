@@ -546,6 +546,59 @@ final class DoubleTest extends TestCase
         $double->combine('+', 'a', 'b');
     }
 
+    /**
+     * PHP gives no way to reach the original from inside a clone's __clone()
+     * — Double resolves that by keying its state off a small identity
+     * property that clone copies by reference, so a clone shares its
+     * original's exact DoubleState, the same way a cloned Mockery mock
+     * shares its own instance-property-based state.
+     */
+    public function test_clone_shares_expectations_configured_on_the_original(): void
+    {
+        $double = Double::for(BookRepositoryInterface::class);
+        $double->allows('find')->with(42)->returns(new Book('Dune'));
+
+        $clone = clone $double;
+
+        $this->assertSame('Dune', $clone->find(42)->title);
+    }
+
+    public function test_clone_shares_expectations_configured_after_cloning(): void
+    {
+        $double = Double::for(BookRepositoryInterface::class);
+        $clone = clone $double;
+
+        $clone->allows('find')->with(42)->returns(new Book('Dune'));
+
+        $this->assertSame('Dune', $double->find(42)->title);
+    }
+
+    public function test_clone_shares_the_same_call_log_as_the_original(): void
+    {
+        $double = Double::for(BookRepositoryInterface::class);
+        $clone = clone $double;
+
+        $clone->find(42);
+
+        $double->received('find')->with(42);
+    }
+
+    /**
+     * The identity property clone-sharing relies on must itself be readonly
+     * — a plain property would be rejected on a generated class the target's
+     * own readonly-ness forces readonly too (readonly requires every
+     * property, including ones from a trait, to be readonly).
+     */
+    public function test_clone_works_on_a_readonly_class_double(): void
+    {
+        $double = Double::for(ReadOnlyLogger::class);
+        $double->allows('log')->returns(true);
+
+        $clone = clone $double;
+
+        $this->assertTrue($clone->log('hello'));
+    }
+
     public function test_never_forbids_any_call_at_all(): void
     {
         $double = Double::for(BookRepositoryInterface::class);

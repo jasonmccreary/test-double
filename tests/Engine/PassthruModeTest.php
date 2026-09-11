@@ -9,6 +9,7 @@ use JMac\Testing\Exceptions\PassthruAutoInstantiationException;
 use JMac\Testing\Exceptions\PassthruTypeMismatchException;
 use JMac\Testing\Integrations\PHPUnit\PHPUnitExpectationCallMismatchException;
 use JMac\Testing\Tests\Support\BookRepositoryInterface;
+use JMac\Testing\Tests\Support\ClonesItselfDuringCall;
 use JMac\Testing\Tests\Support\ConcreteLogger;
 use JMac\Testing\Tests\Support\ExtendedGreeter;
 use JMac\Testing\Tests\Support\InstantiableLogger;
@@ -186,6 +187,22 @@ final class PassthruModeTest extends TestCase
 
         $this->assertSame([[5]], Double::stateFor($double)->callsFor('calculate'));
         $this->assertSame([[5]], Double::stateFor($double)->callsFor('double'));
+    }
+
+    /**
+     * The real-world shape this guards against: Eloquent's own
+     * HasOneOrMany::firstOrCreate() clones the query builder before retrying
+     * a query on the copy. Before Double registered a clone's state, the
+     * clone's very next intercepted call threw "Object is not a
+     * `Double`-generated double" — a crash inside real framework code the
+     * test never wrote, several frames from anything it configured.
+     */
+    public function test_passthru_real_method_can_clone_itself_and_keep_working(): void
+    {
+        $double = Double::for(ClonesItselfDuringCall::class)->passthru();
+        $double->allows('double')->returns(100);
+
+        $this->assertSame(100, $double->retryOnClone(5));
     }
 
     public function test_passthru_rejects_an_instance_unrelated_to_the_doubled_class(): void

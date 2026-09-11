@@ -185,7 +185,9 @@ final class Double
 
         $instance = $generatedClass::__td_instantiate();
 
-        self::states()[$instance] = $state;
+        (new \ReflectionProperty($instance, '__td_identity'))->setValue($instance, new \stdClass);
+
+        self::states()[$instance->__td_identity()] = $state;
 
         if (self::$autoVerifyEnabled) {
             self::$pending[] = $state;
@@ -395,7 +397,11 @@ final class Double
      */
     public static function stateFor(object $double): DoubleState
     {
-        $state = self::states()[$double] ?? null;
+        if (! $double instanceof DoubleInterface) {
+            throw new \LogicException('Object is not a `Double`-generated double.');
+        }
+
+        $state = self::states()[$double->__td_identity()] ?? null;
 
         if ($state === null) {
             throw new \LogicException('Object is not a `Double`-generated double.');
