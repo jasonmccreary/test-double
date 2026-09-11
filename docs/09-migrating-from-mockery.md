@@ -49,6 +49,19 @@ $acquiredLock->expects('get')->returns(true);
 
 This is more setup than the bare mock needed, but it also matches the real type contract — Mockery's version only worked because it didn't check. See [What about "unnamed mocks"?](https://testdoublephp.com/blog/what-about-unnamed-mocks) for the fuller case against a bare, untyped mock.
 
+### Laravel's `Gate` (and Anything Else With a Real `allows()`, `expects()`, etc.)
+
+Laravel's `Gate` contract declares a real `allows()` method — the same name as Double's own `allows()` verb (see [Reserved Method Names](03-creating-doubles.md#reserved-method-names)). `Double::for(Gate::class)` throws rather than doubling it; `override: true` is the fix, covered fully in [Overriding a Reserved Name Collision](03-creating-doubles.md#overriding-a-reserved-name-collision):
+
+```php
+$gate = Double::for(Gate::class, override: true);
+$gate->expects('allows')->with('edit-post')->returns(true);
+
+Gate::swap($gate->instance());
+```
+
+That's `Gate::swap($gate->instance())`, not `Gate::swap($gate)` — `$gate` here is the wrapper `override: true` hands back, not something `Gate`-shaped itself. And regardless of whether a given facade needed `override` to get a double at all: once you've `swap()`'d one in, configure it directly (`$gate->expects(...)`, as above) rather than calling `Gate::expects(...)`/`Gate::shouldReceive(...)` afterward — Laravel's own `Facade::isMock()` check doesn't recognize a Double, so those static passthroughs quietly build and swap in a brand-new, unrelated Mockery mock instead of reaching the one you already configured.
+
 ### Stubbing Methods Behind `__call()`
 
 Mockery would stub any method name on a mock, whether or not the real class declared it. Double requires a method to be reflectable on the double's target, so this doesn't carry over as-is. It mostly comes up with classes whose public API is entirely `__call()`-forwarded — AWS SDK clients, Redis connection wrappers, and similar. See [Why doesn't Double mock magic methods?](https://testdoublephp.com/blog/why-doesnt-double-mock-magic-methods) for two real examples of what to double instead — and one case where the fix isn't a Double concern at all.

@@ -1,2 +1,2 @@
 
-Can't create a double for `ExpectsCollisionInterface`. It contains `expects` which collides with Double's internal methods.
+Can't create a double for `ExpectsCollisionInterface`. It contains `expects` which collides with Double's internal methods. You may use `Double::for(ExpectsCollisionInterface::class, override: true)` to overcome this.

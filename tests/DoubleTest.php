@@ -10,6 +10,7 @@ use JMac\Testing\Engine\ExceptionFactory;
 use JMac\Testing\Engine\ReceivedAssertion;
 use JMac\Testing\Exceptions\MagicMethodException;
 use JMac\Testing\Exceptions\ModeConfigurationException;
+use JMac\Testing\Exceptions\ReservedNameCollisionException;
 use JMac\Testing\Exceptions\StaticMethodException;
 use JMac\Testing\Exceptions\UnknownMethodException;
 use JMac\Testing\Integrations\PHPUnit\PHPUnitExpectationCallLimitExceededException;
@@ -20,6 +21,9 @@ use JMac\Testing\Integrations\PHPUnit\PHPUnitUnsatisfiedExpectationException;
 use JMac\Testing\Integrations\PHPUnit\PHPUnitUnsatisfiedReceivedAssertionException;
 use JMac\Testing\Integrations\PHPUnit\PHPUnitUnusedAssertionException;
 use JMac\Testing\Matching\Argument;
+use JMac\Testing\OverriddenDouble;
+use JMac\Testing\Tests\Support\AuthorizerInterface;
+use JMac\Testing\Tests\Support\AuthorizingLogger;
 use JMac\Testing\Tests\Support\Book;
 use JMac\Testing\Tests\Support\BookRepositoryInterface;
 use JMac\Testing\Tests\Support\Fillable;
@@ -151,6 +155,132 @@ final class DoubleTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
 
         Double::for();
+    }
+
+    /**
+     * AuthorizerInterface's own docblock explains why this fixture exists:
+     * a real, checkable stand-in for Laravel's Gate contract, whose
+     * allows($ability, ...$args): bool collides with Double's own control
+     * verb of the same name.
+     */
+    public function test_for_without_override_still_throws_on_a_reserved_name_collision(): void
+    {
+        $this->expectException(ReservedNameCollisionException::class);
+
+        Double::for(AuthorizerInterface::class);
+    }
+
+    public function test_for_with_override_returns_an_overridden_double_for_a_colliding_target(): void
+    {
+        $double = Double::for(AuthorizerInterface::class, override: true);
+
+        $this->assertInstanceOf(OverriddenDouble::class, $double);
+        $this->assertInstanceOf(AuthorizerInterface::class, $double->instance());
+    }
+
+    public function test_overridden_double_routes_expects_to_the_real_collided_method(): void
+    {
+        $double = Double::for(AuthorizerInterface::class, override: true);
+        $double->expects('allows')->with('edit-post')->returns(true);
+
+        $this->assertTrue($double->instance()->allows('edit-post'));
+
+        $double->verify();
+    }
+
+    public function test_overridden_double_still_fails_verification_when_the_real_method_is_never_called(): void
+    {
+        $double = Double::for(AuthorizerInterface::class, override: true);
+        $double->expects('allows')->with('edit-post')->returns(true);
+
+        $this->expectException(PHPUnitUnsatisfiedExpectationException::class);
+
+        $double->verify();
+    }
+
+    public function test_overridden_double_supports_allows_received_and_unused(): void
+    {
+        $double = Double::for(AuthorizerInterface::class, override: true);
+        $double->allows('allows')->returns(false);
+
+        $this->assertFalse($double->instance()->allows('edit-post'));
+        $double->received('allows')->with('edit-post');
+
+        $another = Double::for(AuthorizerInterface::class, override: true);
+        $another->unused();
+    }
+
+    public function test_overridden_double_strict_delegates_to_the_wrapped_double(): void
+    {
+        $double = Double::for(AuthorizerInterface::class, override: true)->strict();
+
+        $this->expectException(PHPUnitUnexpectedCallException::class);
+
+        $double->instance()->allows('edit-post');
+    }
+
+    /**
+     * AuthorizingLogger, not AuthorizerInterface — inline/instance passthru
+     * both need a real class body to fall back to, which an interface
+     * doesn't have.
+     */
+    public function test_overridden_double_passthru_delegates_to_the_wrapped_double(): void
+    {
+        $real = new AuthorizingLogger;
+        $double = Double::for(AuthorizingLogger::class, override: true)->passthru($real);
+
+        $this->assertTrue($double->instance()->log('hello'));
+    }
+
+    /**
+     * OverriddenDouble::__td_identity() is never actually invoked by any of
+     * OverriddenDouble's own methods — each of those already forwards using
+     * the double it holds, not $this. It only matters if something calls a
+     * `Double::` static directly against the wrapper itself, which
+     * DoubleInterface's contract (OverriddenDouble implements it) commits
+     * to supporting regardless.
+     */
+    public function test_overridden_doubles_own_identity_delegates_to_the_wrapped_double(): void
+    {
+        $double = Double::for(AuthorizerInterface::class, override: true);
+        $double->expects('allows')->with('edit-post')->returns(true);
+        $double->instance()->allows('edit-post');
+
+        Double::verify($double);
+    }
+
+    /**
+     * Passing `override: true` for a target with nothing to collide with is
+     * a no-op — the exact same ordinary double comes back, not a wrapper.
+     */
+    public function test_for_with_override_on_a_non_colliding_target_returns_an_ordinary_double(): void
+    {
+        $double = Double::for(BookRepositoryInterface::class, override: true);
+
+        $this->assertNotInstanceOf(OverriddenDouble::class, $double);
+        $this->assertInstanceOf(BookRepositoryInterface::class, $double);
+    }
+
+    public function test_for_with_override_and_multiple_targets_is_rejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('single target');
+
+        Double::for(Fillable::class, Sized::class, override: true);
+    }
+
+    public function test_for_with_a_positional_bool_instead_of_a_named_override_is_rejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        Double::for(AuthorizerInterface::class, true);
+    }
+
+    public function test_for_with_a_non_bool_override_is_rejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        Double::for(AuthorizerInterface::class, override: 'yes');
     }
 
     public function test_allows_configures_a_return_value_for_a_matching_call(): void

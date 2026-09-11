@@ -383,6 +383,47 @@ final class ClassGeneratorTest extends TestCase
         }
     }
 
+    /**
+     * The generated class still declares a method under the colliding name
+     * (e.g. `allows()`) — it's just the target's own real method, proxied
+     * through ProxyBehavior::intercept() like any other overridable method,
+     * never Double's control verb of the same name (DoubleControlMethods
+     * is never mixed in at all for a bare double, see buildSource()).
+     */
+    #[DataProvider('reservedNameFixtures')]
+    public function test_override_generates_a_bare_class_for_a_target_declaring_a_reserved_control_method_name(string $target, string $method): void
+    {
+        $generated = (new ClassGenerator)->generate($target, override: true);
+
+        $this->assertTrue(is_a($generated, $target, true));
+        $this->assertFalse(is_a($generated, DoubleInterface::class, true));
+    }
+
+    public function test_override_has_no_effect_on_a_target_with_no_reserved_name_collision(): void
+    {
+        $withoutOverride = (new ClassGenerator)->generate(BookRepositoryInterface::class);
+        $withOverride = (new ClassGenerator)->generate(BookRepositoryInterface::class, override: true);
+
+        $this->assertTrue(is_a($withoutOverride, DoubleInterface::class, true));
+        $this->assertTrue(is_a($withOverride, DoubleInterface::class, true));
+    }
+
+    /**
+     * override: true and override: false for the exact same colliding
+     * target must never share a cached generated class — they're
+     * structurally different (one carries the seven control verbs, the
+     * other doesn't), so caching them under the same key would make
+     * behavior depend on which one happened to run first in the process.
+     */
+    public function test_override_and_non_override_generation_for_the_same_collision_never_share_a_cached_class(): void
+    {
+        $bare = (new ClassGenerator)->generate(AuthorizerInterface::class, override: true);
+
+        $this->expectException(ReservedNameCollisionException::class);
+
+        (new ClassGenerator)->generate(AuthorizerInterface::class);
+    }
+
     public function test_never_emits_an_implicit_nullable_parameter_signature(): void
     {
         $generated = (new ClassGenerator)->generate(NullableParamInterface::class);

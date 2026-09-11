@@ -12,7 +12,10 @@ use JMac\Testing\Engine\ClassGenerator;
 use JMac\Testing\Engine\DoubleState;
 use JMac\Testing\Engine\ExceptionFactory;
 use JMac\Testing\Engine\FinalBypass;
+use JMac\Testing\Engine\IdentifiableDouble;
 use JMac\Testing\Engine\MethodExpectation;
+use JMac\Testing\Engine\Mode;
+use JMac\Testing\Engine\PassthruInitializer;
 use JMac\Testing\Engine\PhpUnitIntegration;
 use JMac\Testing\Engine\ReceivedAssertion;
 use JMac\Testing\Exceptions\MagicMethodException;
@@ -104,25 +107,69 @@ final class Double
      * The real PHP return type stays the bare `object` — PHP has no syntax
      * for "whatever type this class-string names," only PHPStan/Psalm's
      * docblock generics do. That's sound, not just convenient: every
-     * generated double actually `implements DoubleInterface` for real
-     * (see that interface's own docblock), so the templated return below is
-     * never a docblock fiction. Only precise for the single-target call — a
-     * multi-target intersection call doesn't have a single T to infer from a
-     * variadic template like this one, so it falls back to the same untyped
-     * `object` a caller would have gotten before this existed.
+     * ordinary generated double actually `implements DoubleInterface` for
+     * real (see that interface's own docblock), so the templated return
+     * below is never a docblock fiction for that path. Only precise for the
+     * single-target call — a multi-target intersection call doesn't have a
+     * single T to infer from a variadic template like this one, so it falls
+     * back to the same untyped `object` a caller would have gotten before
+     * this existed. `override: true` breaks the T&DoubleInterface promise
+     * too, deliberately: when $target actually has a reserved-name
+     * collision, the return is an `OverriddenDouble` instead, which carries
+     * the same seven verbs but isn't $target-shaped — see that class's own
+     * docblock.
+     *
+     * `override` accepts `bool` in the variadic's own type only so it can be
+     * passed by name at all (`Double::for($target, override: true)`) — PHP
+     * validates a named argument against the variadic's declared type same
+     * as a positional one, and `bool` isn't part of a real target's type
+     * otherwise. Passed positionally instead of by name, or with anything
+     * other than a real `bool`, it's rejected explicitly below rather than
+     * silently treated as a target.
      *
      * @template T of object
      *
      * @param  class-string<T>|T  $targets
      * @return T&DoubleInterface
      */
-    public static function for(string|object ...$targets): object
+    public static function for(string|object|bool ...$targets): object
     {
+        $override = false;
+
+        if (array_key_exists('override', $targets)) {
+            if (! is_bool($targets['override'])) {
+                throw new \InvalidArgumentException(sprintf(
+                    'The `override` option for `Double::for()` must be a `bool`, `%s` given.',
+                    get_debug_type($targets['override']),
+                ));
+            }
+
+            $override = $targets['override'];
+            unset($targets['override']);
+            $targets = array_values($targets);
+        }
+
+        foreach ($targets as $target) {
+            if (! is_string($target) && ! is_object($target)) {
+                throw new \InvalidArgumentException(sprintf(
+                    '`Double::for()` only accepts targets (a class-string or an object), plus a named '.
+                    '`override` argument. An unnamed `%s` was passed.',
+                    get_debug_type($target),
+                ));
+            }
+        }
+
         if ($targets === []) {
             throw new \InvalidArgumentException('`Double::for()` requires at least one target.');
         }
 
         if (count($targets) > 1) {
+            if ($override) {
+                throw new \InvalidArgumentException(
+                    '`Double::for()`\'s `override` option only supports a single target.',
+                );
+            }
+
             foreach ($targets as $target) {
                 if (is_object($target)) {
                     // Which real instance a later ->passthru() should fall back to
@@ -142,19 +189,29 @@ final class Double
         $knownInstance = is_object($target) ? $target : null;
         $targetClass = is_object($target) ? $target::class : $target;
 
-        return self::fabricate($targetClass, depth: 0, knownInstance: $knownInstance);
+        return self::fabricate($targetClass, depth: 0, knownInstance: $knownInstance, override: $override);
     }
 
     /**
      * @internal Used by SafeDefaultResolver for recursive Loose-mode
      * fabrication. depth=0 is for()'s own public path — a depth-0 double is
-     * never marked fabricated, and only that path ever passes $knownInstance.
+     * never marked fabricated, and only that path ever passes $knownInstance
+     * or $override.
      */
-    public static function fabricate(string $target, int $depth, ?object $knownInstance = null): object
+    public static function fabricate(string $target, int $depth, ?object $knownInstance = null, bool $override = false): object
     {
-        $generatedClass = (new ClassGenerator)->generate($target);
+        $generatedClass = (new ClassGenerator)->generate($target, $override);
 
-        return self::create($generatedClass, $target, $depth, $knownInstance);
+        $instance = self::create($generatedClass, $target, $depth, $knownInstance);
+
+        // $override only ever changes what generate() produces when $target
+        // actually has a reserved-name collision to route around — a
+        // colliding class is generated bare (IdentifiableDouble only, no
+        // control verbs; see ClassGenerator::buildSource()), so it's never
+        // a DoubleInterface itself. Non-colliding targets are completely
+        // unaffected by $override: generate() produces the exact same class
+        // either way, and this check is simply always true for them.
+        return $instance instanceof DoubleInterface ? $instance : new OverriddenDouble($instance);
     }
 
     /**
@@ -394,10 +451,16 @@ final class Double
 
     /**
      * @internal
+     *
+     * Gates on `IdentifiableDouble`, not the full `DoubleInterface` — an
+     * `override`-generated double (see `for()`) never implements
+     * `DoubleInterface` itself (that's exactly the collision `override`
+     * routes around), but it still needs real state, which is what
+     * `OverriddenDouble` reaches for when it forwards each control verb.
      */
     public static function stateFor(object $double): DoubleState
     {
-        if (! $double instanceof DoubleInterface) {
+        if (! $double instanceof IdentifiableDouble) {
             throw new \LogicException('Object is not a `Double`-generated double.');
         }
 
@@ -423,6 +486,43 @@ final class Double
         $state->registerExpectation($expectation);
 
         return $expectation;
+    }
+
+    /**
+     * @internal Used by DoubleControlMethods::strict() and, on the
+     * `override` path, OverriddenDouble::strict() directly.
+     */
+    public static function strict(object $double): void
+    {
+        self::stateFor($double)->setMode(Mode::Strict);
+    }
+
+    /**
+     * @internal Used by DoubleControlMethods::passthru() and, on the
+     * `override` path, OverriddenDouble::passthru() directly. $realInstance,
+     * if omitted, falls back to the real instance for() remembered
+     * (DoubleState::knownInstance()). With neither, there's no real instance
+     * at all to copy from — the double just keeps the uninitialized state it
+     * already has (see PassthruInitializer::assertConstructible()), real
+     * constructor never run. Either way, an unmatched call afterward runs on
+     * the double itself, via the real body ClassGenerator generated for it
+     * (see ClassGenerator::buildRealMethod() and
+     * ProxyBehavior::handleUnmatchedCall()), not on a separate wrapped
+     * object. That's what lets a self-call made from inside that real body
+     * re-enter the double and hit a configured stub.
+     */
+    public static function passthru(object $double, ?object $realInstance = null): void
+    {
+        $state = self::stateFor($double);
+        $realInstance ??= $state->knownInstance();
+
+        if ($realInstance !== null) {
+            PassthruInitializer::copyState($double, $realInstance, $state->target());
+        } else {
+            PassthruInitializer::assertConstructible($state->target());
+        }
+
+        $state->configurePassthru();
     }
 
     /**
