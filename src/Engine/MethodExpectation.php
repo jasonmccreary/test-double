@@ -330,9 +330,12 @@ final class MethodExpectation
     /**
      * The "- expected\n+ actual" pair for one differing argument. Only
      * EqualsMatcher — a bare literal passed to with() — wraps a raw value
-     * worth diffing directly when both sides are long strings; every other
-     * shape (type checks, patterns, predicates, short values) falls back to
-     * the matcher's own describe() paired against the actual value.
+     * worth diffing directly: long strings get StringDiffer, and two arrays
+     * whose ValueFormatter::describe() output would otherwise collide (same
+     * element count, different content) get a full var_export() dump
+     * instead of two identical-looking "array(N)" lines. Every other shape
+     * (type checks, patterns, predicates, short values) falls back to the
+     * matcher's own describe() paired against the actual value.
      */
     private static function describeArgumentDiff(Matcher $matcher, mixed $actual): string
     {
@@ -341,6 +344,10 @@ final class MethodExpectation
 
             if (is_string($expected) && is_string($actual) && strlen($expected) + strlen($actual) >= StringDiffer::MIN_LENGTH_TO_DIFF) {
                 return StringDiffer::diff($expected, $actual);
+            }
+
+            if (is_array($expected) && is_array($actual) && ValueFormatter::describe($expected) === ValueFormatter::describe($actual)) {
+                return sprintf("- %s\n+ %s", var_export($expected, true), var_export($actual, true));
             }
         }
 

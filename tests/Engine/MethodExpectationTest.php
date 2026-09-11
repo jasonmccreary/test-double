@@ -555,6 +555,52 @@ final class MethodExpectationTest extends TestCase
         );
     }
 
+    /**
+     * Two arrays with the same element count but different values both
+     * describe() as "array(2)" — without a fallback, the diff would show
+     * "- array(2)\n+ array(2)", which is no diagnostic help at all.
+     */
+    public function test_compare_arguments_dumps_arrays_whose_short_descriptions_collide(): void
+    {
+        $expected = ['account_id' => 1, 'name' => 'taylor'];
+        $actual = ['account_id' => '1', 'name' => 'taylor'];
+
+        $expectation = (new MethodExpectation('getCount', required: true))->with($expected);
+
+        $this->assertSame(
+            [
+                'kind' => 'comparisons',
+                'comparisons' => [
+                    ['index' => 0, 'differs' => true, 'text' => sprintf("- %s\n+ %s", var_export($expected, true), var_export($actual, true))],
+                ],
+            ],
+            $expectation->compareArguments([$actual]),
+        );
+    }
+
+    /**
+     * A differing element count already reads clearly as "array(2)" vs.
+     * "array(3)" — no need for the full dump when the short form isn't
+     * ambiguous.
+     */
+    public function test_compare_arguments_does_not_dump_arrays_whose_short_descriptions_differ(): void
+    {
+        $expected = ['a' => 1, 'b' => 2];
+        $actual = ['a' => 1, 'b' => 2, 'c' => 3];
+
+        $expectation = (new MethodExpectation('getCount', required: true))->with($expected);
+
+        $this->assertSame(
+            [
+                'kind' => 'comparisons',
+                'comparisons' => [
+                    ['index' => 0, 'differs' => true, 'text' => "- array(2)\n+ array(3)"],
+                ],
+            ],
+            $expectation->compareArguments([$actual]),
+        );
+    }
+
     public function test_compare_arguments_does_not_diff_a_non_equals_matcher_even_when_long(): void
     {
         $long = str_repeat('a', 60);
