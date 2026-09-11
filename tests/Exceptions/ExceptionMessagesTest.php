@@ -15,6 +15,7 @@ use JMac\Testing\Exceptions\MagicMethodException;
 use JMac\Testing\Exceptions\ModeConfigurationException;
 use JMac\Testing\Exceptions\OutOfOrderCallException;
 use JMac\Testing\Exceptions\PassthruAutoInstantiationException;
+use JMac\Testing\Exceptions\PassthruTypeMismatchException;
 use JMac\Testing\Exceptions\ReservedNameCollisionException;
 use JMac\Testing\Exceptions\StaticMethodException;
 use JMac\Testing\Exceptions\UnexpectedCallException;
@@ -302,11 +303,11 @@ final class ExceptionMessagesTest extends GoldenFileTestCase
         $this->assertMatchesGolden('passthru-auto-instantiation-interface', $exception->getMessage());
     }
 
-    public function test_renders_passthru_auto_instantiation_for_a_throwing_constructor(): void
+    public function test_renders_passthru_type_mismatch(): void
     {
-        $exception = PassthruAutoInstantiationException::constructionFailed('ConcreteLogger', new \RuntimeException('boom'));
+        $exception = new PassthruTypeMismatchException('Logger', 'stdClass');
 
-        $this->assertMatchesGolden('passthru-auto-instantiation-construction-failed', $exception->getMessage());
+        $this->assertMatchesGolden('passthru-type-mismatch', $exception->getMessage());
     }
 
     public function test_renders_unknown_method(): void

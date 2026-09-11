@@ -17,6 +17,7 @@
 
 ## Blog
 
+- [Why doesn't Double mock magic methods?](https://testdoublephp.com/blog/why-doesnt-double-mock-magic-methods): __call() has no fixed shape to check a stub against. Two real examples show what to double instead — and one case where the answer isn't Double at all.
 - [What about "unnamed mocks"?](https://testdoublephp.com/blog/what-about-unnamed-mocks): Why Double doesn't offer an equivalent to Mockery::mock() and what to reach for instead.
 - [What does a good failure message look like?](https://testdoublephp.com/blog/what-does-a-good-failure-message-look-like): A close read of a real Double failure message, piece by piece.
 - [How is Double better than Mockery?](https://testdoublephp.com/blog/how-is-double-better-than-mockery): A reply to a question from r/PHP on what actually improves once you move from Mockery to Double.

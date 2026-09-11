@@ -26,13 +26,9 @@ final class DoubleState
 
     private ?Mode $mode = null;
 
-    private ?object $passthruTarget = null;
-
     // A real instance supplied directly to Double::for($instance). Remembered
-    // independent of mode, so a later ->passthru() with no argument can reuse it
-    // instead of auto-instantiating a fresh one — kept separate from
-    // $passthruTarget since knowing about a real instance and actually being in
-    // Passthru mode are two different things.
+    // independent of mode, so a later ->passthru() with no argument can reuse
+    // it instead of auto-instantiating a fresh one.
     private ?object $knownInstance = null;
 
     private int $fabricationDepth = 0;
@@ -168,25 +164,15 @@ final class DoubleState
     }
 
     /**
-     * ->passthru($realInstance) sets the mode and stores the delegation
-     * target together, so the two can never end up out of sync.
+     * ->passthru() sets the mode. By the time this runs, the double's own
+     * state already matches a real instance (see PassthruInitializer, called
+     * from DoubleControlMethods before this) — there's no separate object to
+     * remember here, since an unmatched call runs on the double itself (see
+     * ProxyBehavior).
      */
-    public function configurePassthru(object $realInstance): void
+    public function configurePassthru(): void
     {
         $this->setMode(Mode::Passthru);
-        $this->passthruTarget = $realInstance;
-    }
-
-    /**
-     * Only ever called from the Mode::Passthru fallback branch, which is
-     * unreachable unless configurePassthru() already ran.
-     */
-    public function passthruTarget(): object
-    {
-        /** @var object $target */
-        $target = $this->passthruTarget;
-
-        return $target;
     }
 
     /**

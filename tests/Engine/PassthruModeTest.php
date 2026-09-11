@@ -6,12 +6,16 @@ namespace JMac\Testing\Tests\Engine;
 
 use JMac\Testing\Double;
 use JMac\Testing\Exceptions\PassthruAutoInstantiationException;
+use JMac\Testing\Exceptions\PassthruTypeMismatchException;
 use JMac\Testing\Integrations\PHPUnit\PHPUnitExpectationCallMismatchException;
 use JMac\Testing\Tests\Support\BookRepositoryInterface;
 use JMac\Testing\Tests\Support\ConcreteLogger;
+use JMac\Testing\Tests\Support\ExtendedGreeter;
 use JMac\Testing\Tests\Support\InstantiableLogger;
 use JMac\Testing\Tests\Support\LoggerInterface;
 use JMac\Testing\Tests\Support\RealLogger;
+use JMac\Testing\Tests\Support\SelfCallingCalculator;
+use JMac\Testing\Tests\Support\StatefulGreeter;
 use PHPUnit\Framework\TestCase;
 
 final class PassthruModeTest extends TestCase
@@ -68,7 +72,7 @@ final class PassthruModeTest extends TestCase
         $this->assertSame([['hello']], Double::stateFor($double)->callsFor('log'));
     }
 
-    public function test_passthru_with_no_argument_auto_instantiates_a_real_instance(): void
+    public function test_passthru_with_no_argument_runs_real_methods(): void
     {
         $double = Double::for(InstantiableLogger::class)->passthru();
 
@@ -85,14 +89,16 @@ final class PassthruModeTest extends TestCase
         $double->passthru();
     }
 
-    public function test_passthru_with_no_argument_surfaces_a_throwing_constructor_clearly(): void
+    /**
+     * ConcreteLogger's constructor always throws (see its own docblock) —
+     * this proves passthru() with no argument never runs it at all. If it
+     * did, this would throw before log() ever got a chance to run.
+     */
+    public function test_passthru_with_no_argument_never_runs_the_real_constructor(): void
     {
-        $double = Double::for(ConcreteLogger::class);
+        $double = Double::for(ConcreteLogger::class)->passthru();
 
-        $this->expectException(PassthruAutoInstantiationException::class);
-        $this->expectExceptionMessage('->passthru($existingInstance)');
-
-        $double->passthru();
+        $this->assertTrue($double->log('hello'));
     }
 
     public function test_for_with_a_real_instance_derives_the_double_from_its_class(): void
@@ -116,20 +122,19 @@ final class PassthruModeTest extends TestCase
 
     public function test_for_with_a_real_instance_is_used_by_a_later_passthru_with_no_argument(): void
     {
-        $real = new InstantiableLogger;
+        $real = new StatefulGreeter('Ada');
         $double = Double::for($real)->passthru();
 
-        $this->assertSame($real, Double::stateFor($double)->passthruTarget());
-        $this->assertTrue($double->log('hello'));
+        $this->assertSame('Hello, Ada!', $double->greet());
     }
 
     public function test_passthru_with_an_explicit_instance_overrides_the_one_remembered_from_for(): void
     {
-        $remembered = new InstantiableLogger;
-        $explicit = new InstantiableLogger;
+        $remembered = new StatefulGreeter('Remembered');
+        $explicit = new StatefulGreeter('Explicit');
         $double = Double::for($remembered)->passthru($explicit);
 
-        $this->assertSame($explicit, Double::stateFor($double)->passthruTarget());
+        $this->assertSame('Hello, Explicit!', $double->greet());
     }
 
     public function test_for_with_a_real_instance_still_satisfies_an_interface_the_class_implements(): void
@@ -149,5 +154,61 @@ final class PassthruModeTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
 
         Double::for(new InstantiableLogger, BookRepositoryInterface::class);
+    }
+
+    /**
+     * The reason passthru runs real code on the double itself rather than a
+     * separate wrapped object: calculate() is unstubbed and runs for real,
+     * and it internally calls $this->double($value). If that self-call
+     * reached the real double() instead of the configured stub, this would
+     * be 11 (5 * 2 + 1), not 101.
+     */
+    public function test_passthru_routes_a_self_call_through_a_configured_stub(): void
+    {
+        $double = Double::for(SelfCallingCalculator::class)->passthru();
+        $double->allows('double')->returns(100);
+
+        $this->assertSame(101, $double->calculate(5));
+    }
+
+    public function test_passthru_still_runs_unstubbed_methods_for_real(): void
+    {
+        $double = Double::for(SelfCallingCalculator::class)->passthru();
+
+        $this->assertSame(11, $double->calculate(5));
+    }
+
+    public function test_passthru_self_calls_are_still_recorded_for_spy_assertions(): void
+    {
+        $double = Double::for(SelfCallingCalculator::class)->passthru();
+
+        $double->calculate(5);
+
+        $this->assertSame([[5]], Double::stateFor($double)->callsFor('calculate'));
+        $this->assertSame([[5]], Double::stateFor($double)->callsFor('double'));
+    }
+
+    public function test_passthru_rejects_an_instance_unrelated_to_the_doubled_class(): void
+    {
+        $double = Double::for(StatefulGreeter::class);
+
+        $this->expectException(PassthruTypeMismatchException::class);
+        $this->expectExceptionMessage('must be `JMac\Testing\Tests\Support\StatefulGreeter` or one of its subclasses');
+
+        $double->passthru(new \stdClass);
+    }
+
+    /**
+     * A subclass instance is accepted — real PHP subtyping, the same as any
+     * type hint would allow. But passthru only ever runs the *doubled*
+     * class's own method bodies, never the subclass's overrides: greet()
+     * here is StatefulGreeter's real implementation, not ExtendedGreeter's.
+     * That's a real, documented limit, not a bug.
+     */
+    public function test_passthru_accepts_a_subclass_instance_but_only_runs_the_doubled_classs_own_methods(): void
+    {
+        $double = Double::for(StatefulGreeter::class)->passthru(new ExtendedGreeter('Ada'));
+
+        $this->assertSame('Hello, Ada!', $double->greet());
     }
 }

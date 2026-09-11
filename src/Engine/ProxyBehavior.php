@@ -155,7 +155,12 @@ final class ProxyBehavior
         return match ($state->mode()) {
             Mode::Strict => throw self::unexpectedCall($state, $method, $arguments),
             Mode::Loose => SafeDefaultResolver::resolveForMethod($state, $method, $double),
-            Mode::Passthru => $state->passthruTarget()->{$method}(...$arguments),
+            // Runs the double's own "__td_real_*" body (see
+            // ClassGenerator::buildRealMethod()) instead of delegating to a
+            // separate object — $this stays the double throughout, so a
+            // self-call inside that real body re-enters the double's own
+            // overrides rather than escaping it.
+            Mode::Passthru => $double->{'__td_real_'.$method}(...$arguments),
         };
     }
 

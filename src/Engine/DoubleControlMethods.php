@@ -41,15 +41,29 @@ trait DoubleControlMethods
 
     /**
      * $realInstance, if omitted, falls back to the real instance for()
-     * remembered (DoubleState::knownInstance()), then to reflection-based
-     * auto-instantiation.
+     * remembered (DoubleState::knownInstance()). With neither, there's no
+     * real instance at all to copy from — the double just keeps the
+     * uninitialized state it already has (see
+     * PassthruInitializer::assertConstructible()), real constructor never
+     * run. Either way, an unmatched call afterward runs on the double
+     * itself, via the real body ClassGenerator generated for it (see
+     * ClassGenerator::buildRealMethod() and
+     * ProxyBehavior::handleUnmatchedCall()), not on a separate wrapped
+     * object. That's what lets a self-call made from inside that real body
+     * re-enter the double and hit a configured stub.
      */
     public function passthru(?object $realInstance = null): static
     {
         $state = Double::stateFor($this);
-        $realInstance ??= $state->knownInstance() ?? PassthruInstantiator::autoInstantiate($state->target());
+        $realInstance ??= $state->knownInstance();
 
-        $state->configurePassthru($realInstance);
+        if ($realInstance !== null) {
+            PassthruInitializer::copyState($this, $realInstance, $state->target());
+        } else {
+            PassthruInitializer::assertConstructible($state->target());
+        }
+
+        $state->configurePassthru();
 
         return $this;
     }

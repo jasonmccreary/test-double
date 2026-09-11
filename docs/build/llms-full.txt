@@ -292,25 +292,35 @@ Any call that doesn't match a configured expectation fails immediately, by name.
 ```php
 $logger = Double::for(Logger::class)->passthru($realLogger);
 
-$logger->info('hello');   // delegates to $realLogger->info('hello')
+$logger->info('hello');   // runs Logger::info() for real, on the double itself
 $logger->error('uh oh');  // still recorded, so received('error') works
 ```
 
-Unconfigured calls delegate to a real object you supply. Anything you have configured still intercepts as usual, and every call is still recorded, whether it was intercepted or delegated, so `received()` (see [Verification](06-verification.md)) works the same as it does in any other mode.
+Unconfigured calls run for real. Anything you have configured still intercepts as usual, and every call is still recorded, whether it was intercepted or ran for real, so `received()` (see [Verification](06-verification.md)) works the same as it does in any other mode.
 
-One exception, easy to miss because Passthru's whole premise is "real behavior unless overridden": once a method has `expects()` registered, a call to it that doesn't match any of its configured expectations always fails — the same rule [Loose mode](#loose-the-default) follows, and for the same reason: `expects()` is a promise about that specific method, not just about the double overall, so it doesn't relax for Passthru's fallback any more than it does for Loose's. `allows()` doesn't raise this bar; a mismatched call to an `allows()`-only method still delegates to the real object, same as a method with nothing configured for it at all. If you meant "override this one call, leave the rest real," reach for `allows()` — `expects()` is for asserting a method is called with exactly the arguments you named. See [A Call Didn't Match an `expects()`](07-failure-messages.md#a-call-didnt-match-an-expects) for what that failure looks like.
+`passthru($realLogger)` doesn't keep `$realLogger` around and forward calls to it — it copies `$realLogger`'s state onto the double once, right then, and from that point on the double *is* the real object, running its actual code directly on itself. That's not just an implementation detail: it's what makes an unstubbed method's own internal calls to other methods on `$this` reach your stubs too, the same way overriding a method in an ordinary subclass would. If `Logger::info()` internally called `$this->format($message)`, and you'd configured `format()`, that stub would fire — even though nothing called `format()` directly from your test.
 
-Calling `->passthru()` with no argument tries to build the real instance for you through reflection, and explains plainly if that isn't possible:
+One consequence of copying state up front rather than continuing to reach into `$realLogger`: if something else mutates `$realLogger` *after* `passthru()` was called, the double won't see that later change. It's a snapshot at the moment you called `passthru()`, not a live view of `$realLogger` going forward.
+
+`$realLogger` must be `Logger` or a subclass of it — the same rule as any real type hint. A subclass is accepted, but only `Logger`'s own methods ever run, never the subclass's overrides: passthru runs the *doubled* class's real code, not whatever class the instance you handed in actually is. Anything unrelated to `Logger` is rejected outright, since there'd be nothing for `Logger`'s own methods to run against.
+
+One exception, easy to miss because Passthru's whole premise is "real behavior unless overridden": once a method has `expects()` registered, a call to it that doesn't match any of its configured expectations always fails — the same rule [Loose mode](#loose-the-default) follows, and for the same reason: `expects()` is a promise about that specific method, not just about the double overall, so it doesn't relax for Passthru's fallback any more than it does for Loose's. `allows()` doesn't raise this bar; a mismatched call to an `allows()`-only method still runs for real, same as a method with nothing configured for it at all. If you meant "override this one call, leave the rest real," reach for `allows()` — `expects()` is for asserting a method is called with exactly the arguments you named. See [A Call Didn't Match an `expects()`](07-failure-messages.md#a-call-didnt-match-an-expects) for what that failure looks like.
+
+Calling `->passthru()` with no argument never runs the real constructor at all — there's nothing to copy from, so the double just keeps the uninitialized state it already has. A real method that goes on to touch a property the constructor would have set throws PHP's own clear "must not be accessed before initialization" error at that point; nothing about passthru itself needs to guess or fail early on your behalf.
+
+This is the shape to reach for when you want to exercise one method's real logic and fake out the handful of other methods it calls along the way — testing a method's own behavior in isolation from its collaborators — even when the class's constructor needs real dependencies you have no interest in providing for this test.
+
+The one case still rejected up front is an interface, since there's no real method body at all to run:
 
 ```
-Can't auto-instantiate `Logger` to passthru. Constructing it threw:
-"...". You may need to pass an existing instance instead. For
-example: `->passthru($existingInstance)`.
+Can't auto-instantiate `Logger` to passthru. It's an interface —
+so there's no constructor to invoke. You may need to pass an
+existing instance instead. For example: `->passthru($existingInstance)`.
 ```
 
-Passthru only applies to classes, since an interface has no implementation to delegate to.
+Passthru only applies to classes, since an interface has no real implementation to run.
 
-If you only want one specific call to delegate to a real object, rather than the whole double, `resolves()` is the better fit. See [Expectations](04-expectations.md).
+If you only want one specific call to run for real, rather than the whole double, `resolves()` is the better fit. See [Expectations](04-expectations.md).
 
 ---
 
@@ -438,6 +448,8 @@ $verify($credential, $options); // runs the double, not the real action
 ```
 
 Everything else — `__get`, `__set`, `__isset`, `__unset`, `__call`, and `__callStatic` — stays rejected. Those exist to intercept access to members that don't exist at all, so there's no fixed call shape for `expects()`/`allows()` to match against.
+
+This comes up most often with classes whose entire public API is `__call`-forwarded — AWS SDK clients, Redis connection wrappers, and similar. See [Why doesn't Double mock magic methods?](https://testdoublephp.com/blog/why-doesnt-double-mock-magic-methods) for what to double instead in those cases, and why it usually ends up being the stronger test.
 
 ---
 
@@ -773,13 +785,13 @@ The following similar call was made to `find`:
 
 This is deliberate: without it, a misconfigured `expects()` tends to surface as a confusing failure somewhere downstream instead — a `null` where you expected a real value, an assertion failing on the symptom instead of the cause. Only `expects()` raises this bar. A mismatched call to an `allows()`-only method still falls back to a safe default, the same as a method with nothing configured for it at all — `allows()` is the verb for "handle this case if it happens," not a promise about every call.
 
-The same rule applies in [Passthru mode](03-creating-doubles.md#passthru), and there it's worth a second look, since Passthru's whole premise is "real behavior unless overridden" — you might expect an unmatched call to simply delegate to the real object the way an unmatched call to an `allows()`-only method does. It doesn't. The message calls this out directly:
+The same rule applies in [Passthru mode](03-creating-doubles.md#passthru), and there it's worth a second look, since Passthru's whole premise is "real behavior unless overridden" — you might expect an unmatched call to simply run for real the way an unmatched call to an `allows()`-only method does. It doesn't. The message calls this out directly:
 
 ```php
 $logger = Double::for(Logger::class)->passthru($realLogger);
 $logger->expects('log')->with('hello')->returns(true);
 
-$logger->log('goodbye'); // fails, does not delegate to $realLogger
+$logger->log('goodbye'); // fails, does not run the real log()
 ```
 
 ```
@@ -945,7 +957,7 @@ Scope the `in()` call to whichever directories your doubles live in — the whol
 
 # Migrating from Mockery
 
-Most of what you already know from Mockery carries over directly. This page provides a full mapping of the methods and concepts from Mockery to their Double equivalent.
+Most of what you already know from Mockery carries over directly. This page provides a full mapping of the methods and concepts from Mockery to their Double equivalent. For the reasoning behind the differences, see [How is Double better than Mockery?](https://testdoublephp.com/blog/how-is-double-better-than-mockery)
 
 You may [automate the conversion from Mockery to Double](https://laravelshift.com/mockery-test-double-converter) for free with Shift.
 
@@ -957,6 +969,7 @@ You may [automate the conversion from Mockery to Double](https://laravelshift.co
 | `Mockery::spy(Foo::class)` | `Double::for(Foo::class)`. Spy-style checking is `received()`, available on every double (see [below](#theres-no-separate-spy)) |
 | `Mockery::mock()->shouldIgnoreMissing()` | `Double::for(Foo::class)`. This is simply the default; see [Modes](03-creating-doubles.md#modes) |
 | `Mockery::mock(Foo::class, [$args])->shouldDeferMissing()` | `Double::for(Foo::class)->passthru($realInstance)` |
+| `Mockery::mock(Foo::class)->makePartial()` | `Double::for(Foo::class)->passthru()`. See [below](#modes-not-mock-kinds) |
 | `shouldReceive('foo')->once()->andReturn($x)` | `expects('foo')->returns($x)`. Exactly-once is `expects()`'s default |
 | `shouldReceive('foo')->andReturn($x)` | `allows('foo')->returns($x)` |
 | `shouldReceive('foo')->andReturn($a, $b)` | `allows('foo')->returns($a, $b)` |
@@ -973,6 +986,29 @@ You may [automate the conversion from Mockery to Double](https://laravelshift.co
 | `globally()` | not available. Ordering applies per double; see [below](#ordering) |
 | `byDefault()` | not available. See [below](#a-few-things-that-didnt-carry-over) |
 | `Mockery::close()` | `$double->verify()`, or `use VerifiesDoubles;`. See [Test Suite Integration](08-test-suite-integration.md) |
+
+### A Bare `Mockery::mock()` Doesn't Carry Over
+
+`Mockery::mock()` with no class argument creates an object that responds to anything you configure on it, regardless of type. It was common to reuse one of these for two unrelated roles — for example, one bare mock standing in as both a `LockProvider` and the `Lock` it returns from itself:
+
+```php
+$lock->shouldReceive('lock')->andReturn($lock);   // lock() returns itself
+$lock->shouldReceive('get')->andReturn(true);      // then get() is called on "itself"
+```
+
+`Double::for()` always doubles a real type, so it only declares the methods that type actually has. `Double::for(LockProvider::class)` doesn't declare `get()`, so the equivalent won't work — split into two typed doubles instead, matching the real return type of the first call:
+
+```php
+$acquiredLock = Double::for(Lock::class);
+$lock->expects('lock')->returns($acquiredLock);
+$acquiredLock->expects('get')->returns(true);
+```
+
+This is more setup than the bare mock needed, but it also matches the real type contract — Mockery's version only worked because it didn't check. See [What about "unnamed mocks"?](https://testdoublephp.com/blog/what-about-unnamed-mocks) for the fuller case against a bare, untyped mock.
+
+### Stubbing Methods Behind `__call()`
+
+Mockery would stub any method name on a mock, whether or not the real class declared it. Double requires a method to be reflectable on the double's target, so this doesn't carry over as-is. It mostly comes up with classes whose public API is entirely `__call()`-forwarded — AWS SDK clients, Redis connection wrappers, and similar. See [Why doesn't Double mock magic methods?](https://testdoublephp.com/blog/why-doesnt-double-mock-magic-methods) for two real examples of what to double instead — and one case where the fix isn't a Double concern at all.
 
 ## Argument Matchers
 
@@ -993,17 +1029,40 @@ You may [automate the conversion from Mockery to Double](https://laravelshift.co
 | `andAnyOtherArgs()` | `Argument::remaining()` |
 | `withNoArgs()` | `Argument::none()`, or `with()` with nothing passed. See [No Arguments at All](05-argument-matching.md#no-arguments-at-all) |
 
+### `withArgs(closure)` and Arity
+
+Mockery's `withArgs(function ($a) { ... })` only ever receives as many arguments as the closure declares — a single-parameter closure silently ignores any further actual arguments. `with()` here expects one matcher per actual argument; a converted `Argument::satisfies($closure)` covering only the first parameter fails against a call with more arguments than that, rather than being treated as "don't care" about the rest:
+
+```php
+// connectToCluster(array $config, array $clusterOptions, array $options) — 3 params
+$connector->expects('connectToCluster')->with(
+    Argument::satisfies(fn ($configArg) => $config === $configArg),
+    Argument::remaining(), // was implicit in Mockery's single-param closure
+);
+```
+
+`Argument::remaining()` (see [Trailing Arguments](05-argument-matching.md#trailing-arguments)) is the explicit equivalent of Mockery's implicit "closure took fewer params than the call had arguments" behavior.
+
+### Comparison Is Strict, Not Loose
+
+A plain value passed to `with()`/`returns()` is compared with `===`-like strictness. Mockery's default comparison is loose `==`, which for an object argument checked against a string triggers `__toString()` coercion — a `Carbon` instance and a date string can compare equal under Mockery even though they're different types. Double never does this coercion; the two are simply unequal.
+
+Converting a suite from Mockery can surface real, previously-silent bugs this way: an expectation that "passed" for years under `==` may legitimately fail under Double because it was never actually checking what it looked like it was checking. If that happens, look at what's actually being compared before assuming the conversion introduced the problem — a `->with()` value that reads as a string may need `Argument::satisfies()` with an explicit cast if the real call genuinely passes an object.
+
 ## Modes, Not Mock Kinds
 
 Mockery starts with a choice: a mock, a spy, or a partial mock. Here, there's one kind of thing (a double), and the equivalent choice is a mode you add on top of it, covered fully in [Creating Doubles](03-creating-doubles.md):
 
 - Mockery's plain `mock()`, once you call `shouldIgnoreMissing()`, behaves like **Loose** mode here, which is simply the default, nothing to opt into.
 - A strict `mock()` with no leniency maps to **Strict** mode (`->strict()`).
-- `shouldDeferMissing()` maps to **Passthru** mode (`->passthru($realInstance)`).
+- `shouldDeferMissing()` and `makePartial()` both map to **Passthru** mode (`->passthru()`) — Mockery splits these into two constructor calls, Double doesn't need to: it's the same mode either way, just with or without an argument.
+  - `shouldDeferMissing()`, which takes real constructor arguments (or, in Mockery terms, is typically paired with `Mockery::mock(Foo::class, [$args])`), maps to `->passthru($realInstance)` — you build the real object however you need to (with real dependencies, a container, whatever), and hand it in directly. This is actually more flexible than Mockery here, since you're not limited to constructor arguments — you can hand in any already-built object.
+  - `makePartial()`, which takes nothing, maps to `->passthru()` with no argument — the double builds its own real state via the target's constructor.
+  - Either way, an unstubbed method runs its real code *on the double itself*, so a self-call it makes internally to another method of the same object can also hit a configured stub — see [Passthru](03-creating-doubles.md#passthru) for why that matters and what it costs.
 
 ### There's No Separate "Spy"
 
-In Mockery, `spy()` is its own constructor. Here, `received()` (checking whether something was actually called) is available on every double, regardless of how it was created or which mode it's in. You don't choose a "spy" up front; you reach for `received()` whenever you want to check after the fact, on the same double you'd otherwise configure with `expects()`/`allows()`. See [Verification](06-verification.md).
+In Mockery, `spy()` is its own constructor. Here, `received()` (checking whether something was actually called) is available on every double, regardless of how it was created or which mode it's in. You don't choose a "spy" up front; you reach for `received()` whenever you want to check after the fact, on the same double you'd otherwise configure with `expects()`/`allows()`. See [Verification](06-verification.md), and [Why not `hasReceived()` or `assertReceived()`?](https://testdoublephp.com/blog/why-not-hasreceived-or-assertreceived) for why the verb has no prefix.
 
 Watch out for `shouldNotHaveBeenCalled()` specifically: it reads like "this spy received no calls," but Mockery only checks whether the mock was invoked as a callable. It says nothing about calls to its methods, which is what most people actually mean and expect it to check. That's the trap `unused()` exists to close: it asserts the double received zero calls to any method, which is almost certainly what you meant in the first place.
 
@@ -1067,6 +1126,145 @@ Every exception's wording lives in one place: its `*Fields` trait in `src/Except
 2. **Update the golden fixture(s)** in `tests/fixtures/exceptions/*.txt`. `GoldenFileTestCase::assertMatchesGolden()` does an exact string comparison against that file's contents, so a wording change will fail every test asserting against the old text until the corresponding `.txt` file is updated to match. There is no `--update-snapshots` flag; edit the fixture by hand (or regenerate it by printing the exception's new `getMessage()` and pasting it in).
 3. **Run the golden-file suite** that covers it: `tests/Exceptions/ExceptionMessagesTest.php`, `CallDescriptionMessagesTest.php`, or `ValidationMessagesTest.php`, depending on which exception you touched. Confirm the new fixture is exactly right.
 4. **Check `tests/Integrations/PHPUnit/PHPUnitExceptionsTest.php`** if the exception has a PHPUnit sibling: it asserts parity between the two, so it should pass without changes once step 1 is done (both read from the same trait), but it's the place a divergence would show up.
+
+---
+
+<!-- https://testdoublephp.com/blog/why-doesnt-double-mock-magic-methods -->
+
+---
+title: Why doesn't Double mock magic methods?
+description: __call() has no fixed shape to check a stub against. Two real examples show what to double instead — and one case where the answer isn't Double at all.
+published: 2026-09-10
+---
+
+# Why doesn't Double mock magic methods?
+
+```php
+$connection->expects('keys')->returns([...]);
+// Can't configure `keys` on a double for `PhpRedisClusterConnection`
+// because it doesn't declare this method.
+```
+
+`PhpRedisClusterConnection` really does answer to `keys()`, in the sense that you can call it and it works. It just isn't a *declared* method — like the rest of Laravel's Redis connection classes, it forwards unrecognized calls through `__call()` to whatever real client it wraps. Reflection sees `__call`, `command`, `client` — the dispatch machinery — and nothing named `keys` at all.
+
+Double requires `expects()`/`allows()` to target a method the target class actually declares. `__get`, `__set`, `__call`, and friends are rejected outright, for all of them, no exceptions. That's a deliberate line, not an oversight, and it's worth explaining why — because the two real cases that ran into it, converting Laravel's own test suite from Mockery, had two completely different right answers, and neither of them was "let Double be looser."
+
+## There's no shape to check a stub against
+
+Every other kind of expectation Double supports rests on knowing the method's real signature. That's what makes arity checking possible, what makes `Argument::remaining()` meaningful, what makes "did you mean `sendEmail`?" possible when you typo a method name. `__call($name, $arguments)` throws all of that away — from reflection's point of view, *every* method call arrives as the same two arguments to the same one method. There's no fixed shape to check `expects('keys')` against, because as far as PHP's type system is concerned, `keys` isn't a real thing on this class.
+
+Loosening this — accepting any method name and trusting the caller to know it's real — would mean giving up the exact thing that makes a double catch a typo or a signature change instead of silently passing. That's a worse trade for the overwhelming majority of doubles just to accommodate the handful of classes built entirely on `__call`.
+
+So instead: what do you actually do when the class you need to double is one of those?
+
+## Case 1 — double the real object, not the proxy
+
+Laravel's Redis connections forward almost everything through `__call()`:
+
+```php
+// Connection::__call()
+public function __call($method, $parameters)
+{
+    return $this->command($method, $parameters);
+}
+```
+
+`command()` ultimately runs `$method` on `$this->client` — the real phpredis (or Predis) client the connection wraps, exposed via `Connection::client()`. Converting Laravel's own `QueueRedisQueueTest` left one call stubbed against a placeholder that couldn't possibly declare the forwarded method:
+
+```php
+// Before — Double::for(\stdClass::class) doesn't declare getOption()
+$redis = Double::for(Factory::class);
+$connection = Double::for(PhpRedisClusterConnection::class);
+$client = Double::for(\stdClass::class);
+
+$redis->expects('connection')->returns($connection);
+$connection->expects('client')->returns($client);
+$client->expects('getOption')->with(\Redis::OPT_SCAN)->returns(\Redis::SCAN_PREFIX);
+$connection->expects('scan')->with(null, ['match' => 'queues:*', 'count' => 1000])
+    ->returns([null, ['test_queues:{default}']]);
+```
+
+`\stdClass` doesn't declare `getOption()` any more than `PhpRedisClusterConnection` declares `keys()` — it just happened to be what the converter reached for as a stand-in for "whatever `client()` returns." The fix is a one-word change: double what `client()` *actually* returns in production, the real `\Redis` extension class, which really does declare `getOption()`:
+
+```php
+// After — \Redis::class is a real extension class with a real getOption()
+$redis = Double::for(Factory::class);
+$connection = Double::for(PhpRedisClusterConnection::class);
+$client = Double::for(\Redis::class);
+
+$redis->expects('connection')->returns($connection);
+$connection->expects('client')->returns($client);
+$client->expects('getOption')->with(\Redis::OPT_SCAN)->returns(\Redis::SCAN_PREFIX);
+$connection->expects('scan')->with(null, ['match' => 'queues:*', 'count' => 1000])
+    ->returns([null, ['test_queues:{default}']]);
+```
+
+Same shape applies directly to the `keys()` case from the top of this post — double `\Redis::class`, configure `keys()` on it (a real, declared method), and let the connection's own `client()` hand it back:
+
+```php
+$client = Double::for(\Redis::class);
+$client->expects('keys')->returns([...]);
+
+$connection = Double::for(PhpRedisClusterConnection::class);
+$connection->allows('client')->returns($client);
+```
+
+This isn't a workaround you settle for because Double can't do better. It's a more honest test. The old version was really asserting "something that can answer `getOption()`," which `stdClass` would happily fake without ever proving the real client shape matches. The fixed version exercises the real forwarding path (`__call` → `command()` → `$this->client->{$method}()`) against a type that actually has to match `\Redis`'s real signature. If someone later changes how `command()` dispatches, this test can actually catch it. The old one couldn't have.
+
+The same move works one layer up the stack, too. `Illuminate\Http\Client\Factory::get()` doesn't exist — `Factory::__call()` builds a `PendingRequest` and calls the method there — so doubling `PendingRequest::class` instead of `Factory::class` gets you a real, declared `get()` to configure. Different framework, same shape: find the concrete class `__call` actually hands off to, and double that.
+
+## Case 2 — there's already a better way
+
+The Redis fix generalizes because `__call` is forwarding to *something concrete*. AWS SDK clients don't have that something:
+
+```php
+$client = Double::for(SesClient::class);
+$client->expects('sendRawEmail')->with(Argument::satisfies(function ($arg) {
+    return $arg['Source'] === 'myself@example.com'
+        && $arg['Destinations'] === ['me@example.com', 'you@example.com'];
+}))->returns($sesResult);
+// Can't configure `sendRawEmail` on a double for `Aws\Ses\SesClient`
+// because it doesn't declare this method.
+```
+
+There's no `SesOperations` class sitting behind `SesClient::__call()` the way `PendingRequest` sits behind `Factory::__call()`. Every AWS SDK client's operations — `sendRawEmail` included — are assembled from a runtime service model the moment they're invoked. There is nothing concrete to retarget to.
+
+That sounds like a dead end, but it isn't — it's a sign the question was aimed at the wrong layer. AWS SDK for PHP ships its own answer to "how do I test code that calls this client," and it doesn't involve mocking the client object at all: `Aws\MockHandler`, a fake HTTP transport wired into a *real* client.
+
+```php
+// After — a real SesClient, faked only at the HTTP transport layer
+$mock = new MockHandler();
+$mock->append(new Result([
+    'MessageId' => 'ses-message-id',
+    '@metadata' => ['statusCode' => 200],
+]));
+
+$client = new SesClient([
+    'region' => 'us-east-1',
+    'version' => 'latest',
+    'credentials' => ['key' => 'foo', 'secret' => 'bar'],
+    'handler' => $mock,
+]);
+
+(new SesTransport($client))->send($message);
+
+$sent = $mock->getLastCommand()->toArray();
+$this->assertSame('myself@example.com', $sent['Source']);
+$this->assertSame(['me@example.com', 'you@example.com'], $sent['Destinations']);
+```
+
+`MockHandler` sits underneath the client and hands back canned `Result`/exception objects instead of making a request. The client itself is real — command building, parameter validation, and response parsing all run for real, not stubbed away. It's a stronger test than a mocked `sendRawEmail()` call ever was, because it's exercising code the mock was skipping entirely — and it's what the Redis fix above was already doing in spirit: prefer the real, narrow seam over a wider one that only looks like the real class.
+
+This is the one case where the right move genuinely isn't a Double API at all. When a third-party library's whole surface is `__call`-generated with nothing concrete underneath, check whether the library ships its own test-doubling mechanism first — a lot of SDKs that lean on runtime dispatch also ship a fake transport for exactly this reason, since they ran into the same problem building their own test suite.
+
+## The general rule
+
+`Double::for()` won't stub a method it can't verify exists. When `__call` is in the way, there are two questions worth asking, in order:
+
+1. Is there a concrete class `__call` is actually forwarding to? Double that instead.
+2. If not, does the library already have its own answer for testing code that uses it?
+
+Only if both come up empty are you actually stuck — and at that point, the fix is usually to introduce a seam your own code owns (an adapter, a thin interface) and double that, rather than trying to intercept a dispatch mechanism that was never designed to be interceptable in the first place.
 
 ---
 

@@ -5,4 +5,4 @@ The following similar call was made to `find`:
     - 123
     + 456
 
-Note: this double is in passthru mode, but using `expects()` means every call needs to be configured. Use `allows()` instead if you want unmatched calls passed through to the real object.
+Note: this double is in passthru mode, but using `expects()` means every call needs to be configured. Use `allows()` instead if you want unmatched calls to run for real.

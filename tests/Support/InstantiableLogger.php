@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace JMac\Testing\Tests\Support;
 
 /**
- * A non-final class with a real, zero-argument constructor — used to prove
- * ->passthru()'s reflection-based auto-instantiation actually succeeds and
- * delegates, as opposed to ConcreteLogger (whose constructor always throws,
- * used for the auto-instantiation *failure* path) or FinalLogger (which
- * can't be doubled at all).
+ * A plain, non-final, real class — the general-purpose stand-in for most of
+ * PassthruModeTest, as opposed to ConcreteLogger (whose constructor always
+ * throws, used to prove passthru() never runs it), StatefulGreeter (used
+ * where a test needs to prove real *state* carried over, not just real
+ * behavior), or FinalLogger (which can't be doubled at all).
  */
 class InstantiableLogger
 {

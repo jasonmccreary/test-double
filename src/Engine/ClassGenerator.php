@@ -284,10 +284,21 @@ final class ClassGenerator
             ? sprintf('extends %s implements %s', $parents, $controlInterface)
             : sprintf('implements %s, %s', $parents, $controlInterface);
 
-        $methods = implode("\n", array_map(
-            $this->buildMethod(...),
-            $this->overridableMethods($reflections),
-        ));
+        $overridable = $this->overridableMethods($reflections);
+
+        $methods = implode("\n", array_map($this->buildMethod(...), $overridable));
+
+        // Inline passthru (see DoubleControlMethods::passthru()) needs a way to
+        // run a method's real, inherited body directly on the double itself —
+        // `parent::{$method}(...)` only compiles inside a class that actually
+        // has a parent, so this is skipped entirely for an `implements` target
+        // (an interface has no body to run). Every overridable method gets one
+        // of these regardless of whether inline passthru is ever used on a
+        // given double — cheap to generate, and simpler than threading "will
+        // this double ever need it" through class generation.
+        if ($keyword === 'extends') {
+            $methods .= "\n".implode("\n", array_map($this->buildRealMethod(...), $overridable));
+        }
 
         // A class extending a readonly one must be readonly itself (every
         // property on a readonly class stays readonly all the way down the
@@ -349,8 +360,58 @@ final class ClassGenerator
 
     private function buildMethod(\ReflectionMethod $method): string
     {
-        $name = $method->getName();
+        $call = sprintf(
+            '\\%s::intercept($this, %s, func_get_args())',
+            ProxyBehavior::class,
+            var_export($method->getName(), true),
+        );
+
+        // Mirrors the real method's own visibility: this is a genuine
+        // override of that method, and PHP requires an override's visibility
+        // to be at least as permissive as what it overrides.
         $visibility = $method->isProtected() ? 'protected' : 'public';
+
+        return $this->buildMethodFromCall($method, $method->getName(), $call, $visibility);
+    }
+
+    /**
+     * Passthru's real-body counterpart to buildMethod() above: same
+     * signature, but the body runs the method's actual inherited
+     * implementation via `parent::` instead of funneling through
+     * ProxyBehavior::intercept(). Named with a "__td_real_" prefix, never
+     * exposed as part of the double's own configurable API — see
+     * ProxyBehavior::handleUnmatchedCall()'s Passthru branch, the only
+     * caller.
+     */
+    private function buildRealMethod(\ReflectionMethod $method): string
+    {
+        $name = $method->getName();
+        $forwarded = implode(', ', array_map(
+            static fn (\ReflectionParameter $parameter): string => ($parameter->isVariadic() ? '...' : '').'$'.$parameter->getName(),
+            $method->getParameters(),
+        ));
+
+        $call = sprintf('parent::%s(%s)', $name, $forwarded);
+
+        // Always public, regardless of the real method's own visibility —
+        // unlike buildMethod() above, this isn't overriding anything (its
+        // name is invented, not inherited), so there's no visibility to
+        // mirror. It has to be callable from ProxyBehavior, a class outside
+        // the double entirely: calling a protected/private method from
+        // outside its own class scope doesn't raise a visibility error —
+        // PHP falls back to the target's __call() instead, if it has one
+        // (Laravel's Macroable trait does), which then rejects the call as
+        // an unknown method. Public is what avoids that silently wrong path.
+        return $this->buildMethodFromCall($method, '__td_real_'.$name, $call, 'public');
+    }
+
+    /**
+     * Shared signature-building for buildMethod() and buildRealMethod() —
+     * both need the exact same parameters and return type, and differ only
+     * in $overrideName, $visibility, and what expression $call evaluates.
+     */
+    private function buildMethodFromCall(\ReflectionMethod $method, string $overrideName, string $call, string $visibility): string
+    {
         $declaringClass = $method->getDeclaringClass();
 
         $parameters = implode(', ', array_map(
@@ -369,17 +430,11 @@ final class ClassGenerator
         $returnDeclaration = $returnTypeString !== null ? ': '.$returnTypeString : '';
         $isVoid = $returnTypeString === 'void';
 
-        $call = sprintf(
-            '\\%s::intercept($this, %s, func_get_args())',
-            ProxyBehavior::class,
-            var_export($name, true),
-        );
-
         // A by-reference-returning method (`function &foo()`) requires the override to
         // declare the same leading "&", or PHP rejects it as incompatible at eval()
         // time. Once declared by-reference, `return $call;` directly also fails —
         // "Only variable references should be returned by reference," since
-        // intercept()'s result isn't itself a reference — so assigning to a local
+        // the call's result isn't itself a reference — so assigning to a local
         // variable first is what makes the by-ref return actually silent.
         $reference = $method->returnsReference() ? '&' : '';
         $body = match (true) {
@@ -392,7 +447,7 @@ final class ClassGenerator
             "    %s function %s%s(%s)%s\n    {\n        %s\n    }\n",
             $visibility,
             $reference,
-            $name,
+            $overrideName,
             $parameters,
             $returnDeclaration,
             $body,
