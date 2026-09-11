@@ -154,6 +154,13 @@ final class ClassGenerator
     }
 
     /**
+     * Public and protected only — a protected reserved-name method still
+     * collides (the generated class must widen it to public to satisfy
+     * DoubleInterface, which PHP rejects as an uncatchable fatal, not a
+     * catchable error), but a private one doesn't: PHP never treats a
+     * private method as inherited, so a subclass declaring the same name
+     * at any visibility has nothing to conflict with.
+     *
      * @param  list<string>  $targets
      * @param  list<\ReflectionClass>  $reflections
      */
@@ -162,7 +169,7 @@ final class ClassGenerator
         $declared = [];
 
         foreach ($reflections as $reflection) {
-            foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+            foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC | \ReflectionMethod::IS_PROTECTED) as $method) {
                 $declared[] = $method->getName();
             }
         }

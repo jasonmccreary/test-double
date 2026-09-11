@@ -35,6 +35,7 @@ use JMac\Testing\Tests\Support\NewInInitializerDefault;
 use JMac\Testing\Tests\Support\NewInInitializerParamInterface;
 use JMac\Testing\Tests\Support\NullableParamInterface;
 use JMac\Testing\Tests\Support\PassthruCollisionInterface;
+use JMac\Testing\Tests\Support\ProtectedPassthruCollision;
 use JMac\Testing\Tests\Support\ReadOnlyLogger;
 use JMac\Testing\Tests\Support\ReceivedCollisionInterface;
 use JMac\Testing\Tests\Support\RefReturnInterface;
@@ -362,6 +363,12 @@ final class ClassGeneratorTest extends TestCase
         yield 'unused' => [UnusedCollisionInterface::class, 'unused'];
         yield 'verify' => [VerifyCollisionInterface::class, 'verify'];
         yield 'AuthorizerInterface allows()' => [AuthorizerInterface::class, 'allows'];
+
+        // A protected reserved-name method still collides — the generated
+        // class must widen it to public to satisfy DoubleInterface, which
+        // PHP would otherwise reject as an uncatchable fatal. Same shape as
+        // Illuminate\Support\LazyCollection's own protected passthru().
+        yield 'protected passthru()' => [ProtectedPassthruCollision::class, 'passthru'];
     }
 
     #[DataProvider('reservedNameFixtures')]
